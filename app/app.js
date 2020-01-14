@@ -18,6 +18,7 @@ const ssh = require('ssh2').Client
 const PersistentObject = require('persistent-cache-object')
 const kue = require('kue')
 const amqp = require('amqplib')
+const randomstring = require('randomstring')
 const eventEmitter = new events.EventEmitter()
 
 const cmdOptions = [
@@ -64,9 +65,7 @@ if(infra) {
 		sshAdaptorsWithNames[i.name] = i
 	})
 }
-
-console.log(sshAdaptorsWithHosts)
-console.log(sshAdaptorsWithNames)
+const trackCopies = {}
 
 // create REST service
 const httpServer = http.createServer(app)
@@ -181,25 +180,28 @@ function checkToken(req, res, next) {
 // TODO
 //app.post(api + '/copy', checkToken, async (req, res) => {
 app.post(api + '/copy',  async (req, res) => {
-	const copies = req.body
-	res.status(200).send()
-	copies.forEach(copyReq => {
-		if (copyReq.cmd.type == 'copy') {
-			queue.create('copy', copyReq).save(err => {
+	const copyReq = req.body
+	res.status(200).send({
+		id: copyReq.id,
+		status: 'submitted'
+	})
+
+	const copies = copyReq.cmd
+	const webhook = copyReq.webhook
+	trackCopies[copyReq.id] = {
+		webhook: webhook,
+		counter: copies.length
+	}
+	copies.forEach(c => {
+		if (c.type == 'copy') {
+			c.ref = copyReq.id
+			queue.create('copy', c).save(err => {
 				if (err) {
 					console.log(err)
-					//res.status(500).send(err)
 					return
 				}
-				//res.status(200).send({
-				//	id: copyReq.id,
-				//	status: 'submitted'
-				//})
 			})
 		} 
-		//else {
-		//	res.status(400).send()
-		//}
 	})
 })
 
@@ -275,23 +277,27 @@ function sshCopy(src, dst) {
 
 queue.process('copy', async (job, done) => {
 	console.log("processing job: " + JSON.stringify(job))
-	const type = job.data.cmd.subtype
+	const type = job.data.subtype
 	
 	if (type == 'scp2scp') {
-		const j = await(sshCopy(job.data.cmd.src, job.data.cmd.dst, null))
-		console.log(j)
-		const wh = job.data.cmd.webhook
-		if (wh) {
-			try{
-				console.log("calling webhook")
-				await rp.post(wh.url, {json: {
-					id: job.data.id,
-					status: 'done',
-					details: job.data
-				}})
-			} catch(err) {
-				console.log(err)
+		const j = await(sshCopy(job.data.src, job.data.dst, null))
+		console.log(job.data)
+		trackCopies[job.data.ref]['counter'] -= 1
+		if(trackCopies[job.data.ref]['counter'] <= 0) {
+			const wh = trackCopies[job.data.ref]['webhook']
+			if (wh) {
+				try{
+					console.log("calling webhook")
+					await rp.post(wh.url, {json: {
+						id: job.data.id,
+						status: 'done',
+						details: job.data
+					}})
+				} catch(err) {
+					console.log(err)
+				}
 			}
+
 		}
 	}
 	
