@@ -193,6 +193,7 @@ app.post(api + '/copy',  async (req, res) => {
 	
 	trackCopies[trackId] = {
 		id: copyReq.id,
+		timestamp: new Date().toISOString(),
 		trackId: trackId,
 		webhook: webhook,
 		counter: copies.length,
@@ -296,6 +297,7 @@ queue.process('copy', async (job, done) => {
 	let status = 'done'
 	if (type == 'scp2scp') {
 		const trackId = job.data.ref
+		const tStart = new Date().toISOString()
 		try {	
 			await(sshCopy(job.data.src, job.data.dst, null))
 		}catch(err) {
@@ -306,13 +308,16 @@ queue.process('copy', async (job, done) => {
 					error: err
 			})
 		}
+		const tDiff = new Date() - new Date(tStart)
 		trackCopies[trackId]['counter'] -= 1
 		trackCopies[trackId]['ready'].push({
+					time: tDiff,
 					src: job.data.src,
 					dst: job.data.dst
 		})
 		if(trackCopies[trackId]['counter'] <= 0) {
 			trackCopies[trackId]['status'] = status
+			trackCopies[trackId]['time'] = new Date() - new Date(trackCopies[trackId]['timestamp'])
 			const wh = trackCopies[job.data.ref]['webhook']
 			if (wh) {
 				try{
