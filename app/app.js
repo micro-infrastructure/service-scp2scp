@@ -18,6 +18,7 @@ const ssh = require('ssh2').Client
 const PersistentObject = require('persistent-cache-object')
 const kue = require('kue')
 const amqp = require('amqplib')
+const jwt = require('jsonwebtoken')
 const randomstring = require('randomstring')
 const eventEmitter = new events.EventEmitter()
 
@@ -40,6 +41,11 @@ Object.keys(users).forEach(k => {
 	const u = users[k]
 	u.decodedPublicKey = decodeBase64(u.publicKey)
 })
+
+if(!options.sshPrivateKey) {
+	//options.sshPrivateKey =  require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
+	options.sshPrivateKey =  process.env.HOME + "/.ssh/id_rsa"
+}
 
 const api = '/api/v1'
 const serverPort = options.port || 4300
@@ -65,7 +71,7 @@ if(infra) {
 		sshAdaptorsWithNames[i.name] = i
 	})
 }
-const trackCopies = {}
+const trackCopies = new PersistentObject('./trackCopies.db');
 
 // create REST service
 const httpServer = http.createServer(app)
@@ -177,24 +183,28 @@ function checkToken(req, res, next) {
 })*/
 
 // api urls
-// TODO
 //app.post(api + '/copy', checkToken, async (req, res) => {
 app.post(api + '/copy',  async (req, res) => {
 	const copyReq = req.body
-	res.status(200).send({
-		id: copyReq.id,
-		status: 'submitted'
-	})
-
 	const copies = copyReq.cmd
 	const webhook = copyReq.webhook
-	trackCopies[copyReq.id] = {
+	const trackId = copyReq.id + '-' + randomstring.generate()
+	
+	trackCopies[trackId] = {
+		id: copyReq.id,
+		trackId: trackId,
 		webhook: webhook,
-		counter: copies.length
+		counter: copies.length,
+		ready: [],
+		status: 'submitted'
 	}
+
+	res.status(200).send(trackCopies[trackId])
+
 	copies.forEach(c => {
+		if (!c.type) c.type = 'copy'
 		if (c.type == 'copy') {
-			c.ref = copyReq.id
+			c.ref = trackId
 			queue.create('copy', c).save(err => {
 				if (err) {
 					console.log(err)
@@ -204,7 +214,8 @@ app.post(api + '/copy',  async (req, res) => {
 		} 
 	})
 })
-
+// TODO
+//app.get(api + '/endpoints',  checkToken, async (req, res) => {
 app.get(api + '/endpoints',  async (req, res) => {
 	const results = {}
 	Object.keys(sshAdaptorsWithNames).forEach(k => {
@@ -218,6 +229,12 @@ app.get(api + '/endpoints',  async (req, res) => {
 	res.status(200).send(results)
 })
 
+//app.get(api + '/status/:trackId',  checkToken, async (req, res) => {
+app.get(api + '/status/:trackId', async (req, res) => {
+	const trackId = req.params.trackId
+	res.status(200).send(trackCopies[trackId])
+})
+
 function sshCopy(src, dst) {
 	src.host = src.host || sshAdaptorsWithNames[src.name]['host']
 	src.user = src.user || sshAdaptorsWithNames[src.name]['user']
@@ -226,10 +243,6 @@ function sshCopy(src, dst) {
 	dst.host = dst.host || sshAdaptorsWithNames[dst.name]['host']
 	dst.user = dst.user || sshAdaptorsWithNames[dst.name]['user']
 	dst.path = dst.path || sshAdaptorsWithNames[dst.name]['path'] + '/' + dst.file
-
-
-	console.log(src)
-	console.log(dst)
 
 	return new Promise((resolve, reject) => {
 		const conn = new ssh()
@@ -259,9 +272,9 @@ function sshCopy(src, dst) {
 			host: src.host,
 			port: 22,
 			username: src.user,
-			privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
-			//privateKey: require('fs').readFileSync(options.sshPrivateKey)
+			privateKey: require('fs').readFileSync(options.sshPrivateKey)
 		})
+		//TODO
 	})
 }
 
@@ -277,13 +290,18 @@ function sshCopy(src, dst) {
 
 queue.process('copy', async (job, done) => {
 	console.log("processing job: " + JSON.stringify(job))
-	const type = job.data.subtype
+	const type = job.data.subtype || 'scp2scp'
 	
 	if (type == 'scp2scp') {
+		const trackId = job.data.ref
 		const j = await(sshCopy(job.data.src, job.data.dst, null))
-		console.log(job.data)
-		trackCopies[job.data.ref]['counter'] -= 1
-		if(trackCopies[job.data.ref]['counter'] <= 0) {
+		trackCopies[trackId]['counter'] -= 1
+		trackCopies[trackId]['ready'].push({
+					src: job.data.src,
+					dst: job.data.dst
+		})
+		if(trackCopies[trackId]['counter'] <= 0) {
+			trackCopies[trackId]['status'] = 'done'
 			const wh = trackCopies[job.data.ref]['webhook']
 			if (wh) {
 				try{
@@ -297,7 +315,6 @@ queue.process('copy', async (job, done) => {
 					console.log(err)
 				}
 			}
-
 		}
 	}
 	
