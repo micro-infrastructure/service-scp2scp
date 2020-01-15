@@ -32,8 +32,9 @@ const cmdOptions = [
 ]
 
 const options = cmdArgs(cmdOptions)
-const infraPath = options.infraPath || '/asstes/infra.json'
+const infraPath = options.infraPath || '/assets/infra.json'
 const infra = (fs.existsSync(infraPath)) ? require(infraPath) : null
+
 
 // list of user's public keys allowed to access the service. Used to check JWT signitature 
 const users = (options.users) ? require(options.users) : {}
@@ -196,6 +197,7 @@ app.post(api + '/copy',  async (req, res) => {
 		webhook: webhook,
 		counter: copies.length,
 		ready: [],
+		error: [],
 		status: 'submitted'
 	}
 
@@ -291,25 +293,34 @@ function sshCopy(src, dst) {
 queue.process('copy', async (job, done) => {
 	console.log("processing job: " + JSON.stringify(job))
 	const type = job.data.subtype || 'scp2scp'
-	
+	let status = 'done'
 	if (type == 'scp2scp') {
 		const trackId = job.data.ref
-		const j = await(sshCopy(job.data.src, job.data.dst, null))
+		try {	
+			await(sshCopy(job.data.src, job.data.dst, null))
+		}catch(err) {
+			status = 'error'
+			trackCopies[trackId]['error'].push({
+					src: job.data.src,
+					dst: job.data.dst,
+					error: err
+			})
+		}
 		trackCopies[trackId]['counter'] -= 1
 		trackCopies[trackId]['ready'].push({
 					src: job.data.src,
 					dst: job.data.dst
 		})
 		if(trackCopies[trackId]['counter'] <= 0) {
-			trackCopies[trackId]['status'] = 'done'
+			trackCopies[trackId]['status'] = status
 			const wh = trackCopies[job.data.ref]['webhook']
 			if (wh) {
 				try{
 					console.log("calling webhook")
 					await rp.post(wh.url, {json: {
 						id: job.data.id,
-						status: 'done',
-						details: job.data
+						status: status,
+						details: trackCopies[trackId]
 					}})
 				} catch(err) {
 					console.log(err)
