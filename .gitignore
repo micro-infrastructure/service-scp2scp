@@ -24,6 +24,10 @@ pids
 
 # secrets
 config.json
+config*.json*
+infra.json
+infra*.json*
+network.json
 *secret*
 *.key
 *.pem

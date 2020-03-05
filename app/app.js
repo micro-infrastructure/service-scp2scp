@@ -28,12 +28,25 @@ const cmdOptions = [
 	{ name: 'users', alias: 'u', type: String},
 	{ name: 'amqp', type: String },
     { name: 'infraPath', type: String},
+    { name: 'netPath', type: String},
 	{ name: 'sshPrivateKey', type: String }
 ]
 
 const options = cmdArgs(cmdOptions)
 const infraPath = options.infraPath || '/assets/infra.json'
+const netPath = options.netPath || '/assets/network.json'
 const infra = (fs.existsSync(infraPath)) ? require(infraPath) : null
+const network = (fs.existsSync(netPath)) ? require(netPath) : null
+
+
+if(network) {
+	console.log("loaded network graph graph: ", netPath)
+}
+if(infra) {
+	infra.folders = infra.folders || []
+	console.log("loaded infra user infra: ", infraPath)
+	console.log(infra.folders)
+}
 
 
 // list of user's public keys allowed to access the service. Used to check JWT signitature 
@@ -217,9 +230,23 @@ app.post(api + '/copy',  async (req, res) => {
 		} 
 	})
 })
-// TODO
-//app.get(api + '/endpoints',  checkToken, async (req, res) => {
-app.get(api + '/endpoints',  async (req, res) => {
+
+app.post(api + '/ls', async (req, res) => {
+	const node = translateNames(req.body)
+	node.user = 'reggie'
+	sshCommand(node, 'find ' + node.path).then(r => {
+		console.log(r)
+		const out = r.stdout.split('\n').filter(e => {
+			return e
+		})
+		res.status(200).send(out)
+	}).catch(e => {
+		console.log(e)
+		res.status(500).send(e)
+	})
+})
+
+app.get(api + '/folders',  async (req, res) => {
 	const results = {}
 	Object.keys(sshAdaptorsWithNames).forEach(k => {
 		const v = sshAdaptorsWithNames[k]
@@ -227,6 +254,13 @@ app.get(api + '/endpoints',  async (req, res) => {
 			host: v.host,
 			path: v.path,
 			user: v.user
+		}
+	})
+	infra.folders.forEach(f => {
+		results[f.name] = {
+			host: f.host,
+			path: f.folder,
+			user: f.user
 		}
 	})
 	res.status(200).send(results)
@@ -238,14 +272,88 @@ app.get(api + '/status/:trackId', async (req, res) => {
 	res.status(200).send(trackCopies[trackId])
 })
 
+function trim(s) {
+	if (!s) return ''
+	return s.replace(/^\s+|\s+$/g,'')
+}
+
+function sshCommand(node, cmd) {
+	return new Promise((resolve, reject) => {
+		const conn = new ssh()
+		let stdout = ''
+		let stderr = ''
+		const startTime = new Date().toISOString();
+		conn.on('error', err => {
+			reject(err)
+		})
+		conn.on('ready', () => {
+			//console.log('[' + node.host + '] connected')
+			conn.exec(cmd, (err, stream) => {
+				if (err) reject(err)
+				stream.on('close', (code, signal) => {
+					conn.end()
+					resolve({
+						stdout: stdout,
+						stderr: stderr,
+						startTime: startTime,
+						endTime: new Date().toISOString()
+					})
+				}).on('data', data => {
+					//console.log("[" + node.host + "][" + cmd + "][stdout] " + trim(data.toString('utf-8')))
+					stdout += data.toString('utf-8') + '\n'
+				}).stderr.on('data', data => {
+					//console.log("[" + node.host + "][" + cmd + "][stderr] " + trim(data.toString('utf-8')))
+					stderr += data.toString('utf-8')
+				})
+			})
+		}).connect({
+			host: node.host,
+			port: node.port || 22,
+			username: node.user,
+			privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
+		})
+	})
+}
+
+function translateNames(s) {
+	folders = {}
+	infra.folders.forEach(f => {
+		folders[f.name] = f
+	})
+	if(!sshAdaptorsWithNames[s.name]) sshAdaptorsWithNames[s.name] = {}
+	if(!folders[s.name]) folders[s.name] = {}
+	s.host = s.host || sshAdaptorsWithNames[s.name]['host'] || folders[s.name]['host']
+	s.user = s.user || sshAdaptorsWithNames[s.name]['user'] || folders[s.name]['user']
+	s.path = s.path || sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['path']
+
+	if(s.path.slice(-1) != '/') {
+		s.path += '/'
+	}
+	if(s.file) {
+		s.path += s.file
+	} else {
+		const relPath = s.path
+		s.path = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['path'] 
+		s.path +=  '/' + relPath
+		s.path = s.path.replace('//', '/')
+	}
+
+	return s
+}
+
 function sshCopy(src, dst) {
-	src.host = src.host || sshAdaptorsWithNames[src.name]['host']
+	src = translateNames(src)
+	dst = translateNames(dst)
+
+	console.log("src: ", src)
+	console.log("dst: ", dst)
+	/*src.host = src.host || sshAdaptorsWithNames[src.name]['host']
 	src.user = src.user || sshAdaptorsWithNames[src.name]['user']
 	src.path = src.path || sshAdaptorsWithNames[src.name]['path'] + '/' + src.file
 	
 	dst.host = dst.host || sshAdaptorsWithNames[dst.name]['host']
 	dst.user = dst.user || sshAdaptorsWithNames[dst.name]['user']
-	dst.path = dst.path || sshAdaptorsWithNames[dst.name]['path'] + '/' + dst.file
+	dst.path = dst.path || sshAdaptorsWithNames[dst.name]['path'] + '/' + dst.file*/
 
 	return new Promise((resolve, reject) => {
 		const conn = new ssh()
@@ -281,55 +389,175 @@ function sshCopy(src, dst) {
 	})
 }
 
-/*sshCopy({
-	host: 'pro.cyfronet.pl',
-	user: 'plgcushing',
-	path: '10M.dat'
-}, {
-	host: 'lisa.surfsara.nl',
-	user: 'cushing',
-	path: ''
-}, null)*/
+async function setupCharlieServer(s) {
+	console.log("Charlie: ", s)
+	const imageFile = s.protocols.fdt.imageName
+	const image = imageFile.replace('.tar.gz','');
+	const serverPort = s.openTcpPorts[0]
+	const preCommands = s.protocols.fdt.preCommands.join(' && ')
+	const setupCommands = [
+		"mkdir -p .charliecloud",
+		"module load charliecloud && ch-tar2dir " + imageFile + " .charliecloud/"
+	]
+	const runCmd = "module load charliecloud && ch-run -c /app/ .charliecloud/" + image + " -- bash server " + serverPort
+	const paths = s.protocols.fdt.bindPaths
+	if(s.details.path) {
+		paths.push(s.details.path+":/data")
+	}
+	const node = {
+		host: s.details.host,
+		user: s.details.user
+	}
+	setupCommands.push(runCmd)
+	sshCommand(node, setupCommands[1]).then(r => {
+		console.log("done1: ", r)
+		sshCommand(node, setupCommands[2]).then(rr => {
+			console.log("done2: ", rr)
+		}).catch(ee => {
+			console.log(ee)
+		})
+	}).catch(e => {
+		console.log(e)
+	})
+	/*setupCommands.forEach(async c => {
+		try{
+			console.log("running command: ", c)
+			const r = await(sshCommand(node, c))
+			console.log(r)
+		}catch(err){
+			console.log(err)
+		}
+	})
+	// run cmd
+	/*try{
+		console.log("running command: ", runCmd)
+		console.log("on: ", node)
+		const r = await(sshCommand(node, runCmd))
+		console.log(r)
+	}catch(err){
+		console.log(err)
+	}*/
+	
+	
+	
+}
+
+function setupSingularityServer(s) {
+	console.log("Singularity: ", s)
+}
+
+function fdtCopy(src, dst) {
+	console.log("fdt copy...")
+	src = translateNames(src)
+	dst = translateNames(dst)
+
+	console.log("src: ", src)
+	console.log("dst: ", dst)
+
+
+	/*src.host = src.host || sshAdaptorsWithNames[src.name]['host']
+	src.user = src.user || sshAdaptorsWithNames[src.name]['user']
+	src.path = src.path || sshAdaptorsWithNames[src.name]['path'] + '/' + src.file
+	
+	dst.host = dst.host || sshAdaptorsWithNames[dst.name]['host']
+	dst.user = dst.user || sshAdaptorsWithNames[dst.name]['user']
+	dst.path = dst.path || sshAdaptorsWithNames[dst.name]['path'] + '/' + dst.file*/
+
+	const srcNode = network.nodes[src.name]
+	const dstNode = network.nodes[dst.name]
+
+
+	return new Promise((resolve, reject) => {
+		let server = null
+		let client = null
+		// choose server and client
+		if(dstNode.openTcpPorts.length > 0) {
+			// set server
+			server = dstNode
+			server.name = dst.name
+			server.details = dst
+			client = srcNode
+			client.name = src.name
+			client.details = src
+		} else if (srcNode.openTcpPorts.length > 0) {
+			server = srcNode
+			server.name = src.name
+			server.details = src
+			client = dstNode
+			client.name = dst.name
+			client.details = dst
+		}
+		if (!server) {
+			// no communication possible
+			reject()
+		}
+		// set up server node
+		const fdtServer = server.protocols.fdt
+		if(fdtServer.cntInterface == "charliecloud") {
+			//setupCharlieServer(server)
+		}
+		if(fdtServer.cntInterface == "singularity") {
+			//setupSingularityServer(server)
+		}
+		// set up client node
+		// copy file
+		// tear down client node
+		// tear down server node
+		resolve({
+			src: src,
+			dst: dst
+		})
+	})
+}
 
 queue.process('copy', async (job, done) => {
 	console.log("processing job: " + JSON.stringify(job))
-	const type = job.data.subtype || 'scp2scp'
 	let status = 'done'
-	if (type == 'scp2scp') {
-		const trackId = job.data.ref
-		const tStart = new Date().toISOString()
-		try {	
-			await(sshCopy(job.data.src, job.data.dst, null))
-		}catch(err) {
-			status = 'error'
-			trackCopies[trackId]['error'].push({
-					src: job.data.src,
-					dst: job.data.dst,
-					error: err
-			})
+	const trackId = job.data.ref
+	const tStart = new Date().toISOString()
+	try {	
+		const edgeId = job.data.src.name+'->'+job.data.dst.name
+		const edge = network.edges[edgeId] || ['scp']
+		for(let p of edge.protocolPreference) {
+			if(p == 'fdt') {
+				await(fdtCopy(job.data.src, job.data.dst, null))
+				break
+			}
+			if(p == 'scp') {
+				await(sshCopy(job.data.src, job.data.dst, null))
+				break
+			}
 		}
-		const tDiff = new Date() - new Date(tStart)
-		trackCopies[trackId]['counter'] -= 1
-		trackCopies[trackId]['ready'].push({
-					time: tDiff,
-					src: job.data.src,
-					dst: job.data.dst
+	}catch(err) {
+		console.log(err)
+		status = 'error'
+		trackCopies[trackId]['error'].push({
+				src: job.data.src,
+				dst: job.data.dst,
+				error: err
 		})
-		if(trackCopies[trackId]['counter'] <= 0) {
-			trackCopies[trackId]['status'] = status
-			trackCopies[trackId]['time'] = new Date() - new Date(trackCopies[trackId]['timestamp'])
-			const wh = trackCopies[job.data.ref]['webhook']
-			if (wh) {
-				try{
-					console.log("calling webhook")
-					await rp.post(wh.url, {json: {
-						id: job.data.id,
-						status: status,
-						details: trackCopies[trackId]
-					}})
-				} catch(err) {
-					console.log(err)
-				}
+	}
+	const tDiff = new Date() - new Date(tStart)
+	trackCopies[trackId]['counter'] -= 1
+	trackCopies[trackId]['ready'].push({
+				time: tDiff,
+				src: job.data.src,
+				dst: job.data.dst
+	})
+	if(trackCopies[trackId]['counter'] <= 0) {
+		trackCopies[trackId]['status'] = status
+		trackCopies[trackId]['time'] = new Date() - new Date(trackCopies[trackId]['timestamp'])
+		const wh = trackCopies[job.data.ref]['webhook']
+		if (wh) {
+			try{
+				console.log("calling webhook")
+				await rp.post(wh.url, {json: {
+					id: job.data.id,
+					status: status,
+					details: trackCopies[trackId]
+				}})
+			} catch(err) {
+				//console.log(err)
 			}
 		}
 	}
@@ -360,6 +588,6 @@ function verifyJob(job) {
 	return true
 }
 
-console.log("Starting server...")
-httpServer.listen(options.port || 4300)
+console.log("Starting server on port: " + serverPort)
+httpServer.listen(serverPort)
 
