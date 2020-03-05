@@ -196,7 +196,55 @@ function checkToken(req, res, next) {
 	})
 })*/
 
+async function copy(req, res) {
+}
 // api urls
+app.post(api + '/move',  async (req, res) => {
+	const copyReq = req.body
+	const copies = copyReq.cmd
+	const webhook = copyReq.webhook
+	const trackId = copyReq.id + '-' + randomstring.generate()
+	
+	trackCopies[trackId] = {
+		id: copyReq.id,
+		timestamp: new Date().toISOString(),
+		trackId: trackId,
+		webhook: webhook,
+		counter: copies.length,
+		ready: [],
+		error: [],
+		status: 'submitted'
+	}
+
+	res.status(200).send(trackCopies[trackId])
+
+	copies.forEach(c => {
+		if (!c.type) c.type = 'copy'
+		if (c.type == 'copy') {
+			c.ref = trackId
+			const job = queue.create('copy', c).save(err => {
+				if (err) {
+					console.log(err)
+					return
+				}
+			})
+			job.on('complete', function(r) {
+				console.log("READY: ",r)
+				r.ref = trackId
+				const delJob = queue.create('delete', r).save(err => {
+					if (err) {
+						console.log(err)
+						return
+					}
+				})
+
+				delJob.on('complete', function(r) {
+					console.log("deleted file from source.")
+				})
+			})
+		} 
+	})
+})
 //app.post(api + '/copy', checkToken, async (req, res) => {
 app.post(api + '/copy',  async (req, res) => {
 	const copyReq = req.body
@@ -231,7 +279,7 @@ app.post(api + '/copy',  async (req, res) => {
 	})
 })
 
-app.post(api + '/ls', async (req, res) => {
+app.post(api + '/list', async (req, res) => {
 	const node = translateNames(req.body)
 	node.user = 'reggie'
 	sshCommand(node, 'find ' + node.path).then(r => {
@@ -363,7 +411,8 @@ function sshCopy(src, dst) {
 		})
 		conn.on('ready', () => {
 			console.log("[SSH] connected")
-			const cmd = 'scp ' + src.path + " " + dst.user + '@' + dst.host + ":" + dst.path
+			const cmd = 'scp -i .ssh/process_id_rsa ' + src.path + " " + dst.user + '@' + dst.host + ":" + dst.path
+			console.log("cmd: ", cmd)
 			conn.exec(cmd, (err, stream) => {
 				if (err) reject(err)
 				stream.on('close', (code, signal) => {
@@ -510,6 +559,41 @@ function fdtCopy(src, dst) {
 	})
 }
 
+queue.process('delete', async (job, done) => {
+	console.log("delete type job: ", job.data)
+	const dstNode = {
+		host: job.data.dst.host,
+		user: job.data.dst.user,
+		file: job.data.dst.path + path.basename(job.data.src.path)
+	}
+	const srcNode = {
+		host: job.data.src.host,
+		user: job.data.src.user,
+		file: job.data.src.path
+	}
+
+	sshCommand(dstNode, 'md5sum ' + dstNode.file).then(r => {
+		dstNode.md5sum = r.stdout.split(' ')[0]
+		console.log("dst md5sum: ", dstNode.md5sum)
+		sshCommand(srcNode, 'md5sum ' + srcNode.file).then(r => {
+			srcNode.md5sum = r.stdout.split(' ')[0]
+			console.log("src md5sum: ", srcNode.md5sum)
+			if(dstNode.md5sum == srcNode.md5sum) {
+				// OK to delete src
+				sshCommand(srcNode, 'rm -f ' + srcNode.file).then(r => {
+					console.log(r)
+					console.log("deleted file ", srcNode.file)
+				})
+			}
+		}).catch(e => {
+			console.log(e)
+		})
+	}).catch(e => {
+		console.log(e)
+	})
+	done()
+})
+
 queue.process('copy', async (job, done) => {
 	console.log("processing job: " + JSON.stringify(job))
 	let status = 'done'
@@ -562,7 +646,10 @@ queue.process('copy', async (job, done) => {
 		}
 	}
 	
-	done()
+	done(null, {
+		src: job.data.src,
+		dst: job.data.dst
+	})
 })
 
 queue.on('job enqueue', function(id, type){
