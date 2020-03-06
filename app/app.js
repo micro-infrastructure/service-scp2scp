@@ -211,26 +211,36 @@ app.post(api + '/move',  async (req, res) => {
 		trackId: trackId,
 		webhook: webhook,
 		counter: copies.length,
-		ready: [],
-		error: [],
-		status: 'submitted'
+		files: {},
+		//ready: [],
+		//error: [],
+		status: 'QUEUED'
 	}
 
 	res.status(200).send(trackCopies[trackId])
 
-	copies.forEach(c => {
-		if (!c.type) c.type = 'copy'
-		if (c.type == 'copy') {
+	copies.forEach((c, i) => {
+		if (!c.type) c.type = 'move'
+		if (c.type == 'move') {
 			c.ref = trackId
+			c.num = i
 			const job = queue.create('copy', c).save(err => {
 				if (err) {
 					console.log(err)
 					return
 				}
 			})
+			job.on('failed', function(e) {
+				if(e) {
+					const error = JSON.parse(e)
+					console.log("error copying file: ", error)
+					// handle error moving
+					return
+				}
+			})
 			job.on('complete', function(r) {
-				console.log("READY: ",r)
 				r.ref = trackId
+				r.num = i
 				const delJob = queue.create('delete', r).save(err => {
 					if (err) {
 						console.log(err)
@@ -239,12 +249,24 @@ app.post(api + '/move',  async (req, res) => {
 				})
 
 				delJob.on('complete', function(r) {
-					console.log("deleted file from source.")
+					console.log("deleted file from source: ", r)
+					finishAndCallWebhook(job)
 				})
+				delJob.on('failed', function(e) {
+					if(e) {
+						const error = JSON.parse(e)
+						console.log("error moving file: ", error)
+						// handle error moving
+						finishAndCallWebhook(job)
+						return
+					}
+				})
+
 			})
 		} 
 	})
 })
+
 //app.post(api + '/copy', checkToken, async (req, res) => {
 app.post(api + '/copy',  async (req, res) => {
 	const copyReq = req.body
@@ -258,17 +280,19 @@ app.post(api + '/copy',  async (req, res) => {
 		trackId: trackId,
 		webhook: webhook,
 		counter: copies.length,
-		ready: [],
-		error: [],
-		status: 'submitted'
+		files: {},
+		//ready: [],
+		//error: [],
+		status: 'QUEUED'
 	}
 
 	res.status(200).send(trackCopies[trackId])
 
-	copies.forEach(c => {
+	copies.forEach((c, i) => {
 		if (!c.type) c.type = 'copy'
 		if (c.type == 'copy') {
 			c.ref = trackId
+			c.num = i
 			queue.create('copy', c).save(err => {
 				if (err) {
 					console.log(err)
@@ -281,7 +305,7 @@ app.post(api + '/copy',  async (req, res) => {
 
 app.post(api + '/list', async (req, res) => {
 	const node = translateNames(req.body)
-	node.user = 'reggie'
+	//node.user = 'reggie'
 	sshCommand(node, 'find ' + node.path).then(r => {
 		console.log(r)
 		const out = r.stdout.split('\n').filter(e => {
@@ -358,7 +382,8 @@ function sshCommand(node, cmd) {
 			host: node.host,
 			port: node.port || 22,
 			username: node.user,
-			privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
+			privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/process_id_rsa")
+			//privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
 		})
 	})
 }
@@ -411,7 +436,7 @@ function sshCopy(src, dst) {
 		})
 		conn.on('ready', () => {
 			console.log("[SSH] connected")
-			const cmd = 'scp -i .ssh/process_id_rsa ' + src.path + " " + dst.user + '@' + dst.host + ":" + dst.path
+			const cmd = 'scp -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q ' + src.path + " " + dst.user + '@' + dst.host + ":" + dst.path
 			console.log("cmd: ", cmd)
 			conn.exec(cmd, (err, stream) => {
 				if (err) reject(err)
@@ -559,49 +584,123 @@ function fdtCopy(src, dst) {
 	})
 }
 
-queue.process('delete', async (job, done) => {
-	console.log("delete type job: ", job.data)
-	const dstNode = {
-		host: job.data.dst.host,
-		user: job.data.dst.user,
-		file: job.data.dst.path + path.basename(job.data.src.path)
-	}
-	const srcNode = {
-		host: job.data.src.host,
-		user: job.data.src.user,
-		file: job.data.src.path
-	}
+function getHashOfDstAndSrc(src, dst) {
+	return new Promise((resolve, reject) => {
+		const dstNode = {
+			host: dst.host,
+			user: dst.user,
+			file: dst.path + path.basename(src.path)
+		}
+		const srcNode = {
+			host: src.host,
+			user: src.user,
+			file: src.path
+		}
 
-	sshCommand(dstNode, 'md5sum ' + dstNode.file).then(r => {
-		dstNode.md5sum = r.stdout.split(' ')[0]
-		console.log("dst md5sum: ", dstNode.md5sum)
-		sshCommand(srcNode, 'md5sum ' + srcNode.file).then(r => {
-			srcNode.md5sum = r.stdout.split(' ')[0]
-			console.log("src md5sum: ", srcNode.md5sum)
-			if(dstNode.md5sum == srcNode.md5sum) {
-				// OK to delete src
-				sshCommand(srcNode, 'rm -f ' + srcNode.file).then(r => {
-					console.log(r)
-					console.log("deleted file ", srcNode.file)
+		sshCommand(dstNode, 'md5sum ' + dstNode.file).then(r => {
+			dstNode.md5sum = r.stdout.split(' ')[0]
+			sshCommand(srcNode, 'md5sum ' + srcNode.file).then(r => {
+				srcNode.md5sum = r.stdout.split(' ')[0]
+				resolve({
+					src: srcNode,
+					dst: dstNode
 				})
-			}
+			}).catch(e => {
+				console.log(e)
+				reject(e)
+			})
 		}).catch(e => {
 			console.log(e)
+			reject(e)
 		})
-	}).catch(e => {
-		console.log(e)
 	})
-	done()
+}
+
+queue.process('delete', async (job, done) => {
+	console.log("delete type job: ", job.data)
+	const trackId = job.data.ref
+	const copyId = job.data.num
+	const doc = trackCopies[trackId]
+	const track = doc.files[copyId]
+
+	track.status = "START_DELETE"
+	getHashOfDstAndSrc(job.data.src, job.data.dst).then(r => {
+		if(r.src.md5sum == r.dst.md5sum) {
+			// OK to delete src
+			sshCommand(r.src, 'rm -f ' + r.src.file).then(() => {
+				track.status = "DONE_DELETE"
+				done(null, r)
+			}).catch(e => {
+				track.status = "ERROR_DELETE"
+				track.errorDetails = e
+				const error = {
+					type: "UNKNOWN",
+					details: e,
+					files: r
+				}
+				done(JSON.stringify(error))
+			})
+		} else {
+			track.status = "ERROR_DELETE"
+			track.errorDetails = "HASH_MISMATCH"
+			const error = {
+				type: "HASH_MISMATCH",
+				details: null,
+				files: r
+			}
+			done(JSON.stringify(error))
+		}
+	})
 })
+
+async function finishAndCallWebhook(job) {
+	const trackId = job.data.ref
+	const copyId = job.data.num
+	const doc = trackCopies[trackId]
+	const track = doc.files[copyId]
+	const tDiff = new Date() - new Date(track.tStart)
+	trackCopies[trackId]['counter'] -= 1
+	/*trackCopies[trackId]['ready'].push({
+				time: tDiff,
+				src: job.data.src,
+				dst: job.data.dst
+	})*/
+	if(trackCopies[trackId]['counter'] <= 0) {
+		trackCopies[trackId]['status'] = "DONE_ALL"
+		trackCopies[trackId]['time'] = new Date() - new Date(trackCopies[trackId]['timestamp'])
+		const wh = trackCopies[job.data.ref]['webhook']
+		if (wh) {
+			try{
+				console.log("calling webhook")
+				await rp.post(wh.url, {json: {
+					id: job.data.id,
+					//status: trackCopies[trackId]['status'],
+					details: trackCopies[trackId]
+				}})
+			} catch(err) {
+				console.log(err)
+			}
+		}
+	}
+}
 
 queue.process('copy', async (job, done) => {
 	console.log("processing job: " + JSON.stringify(job))
 	let status = 'done'
 	const trackId = job.data.ref
+	const copyId = job.data.num
+	const doc = trackCopies[trackId]
+	doc.files[copyId] = {
+		src: job.data.src,
+		dst: job.data.dst
+	}
+	const track = doc.files[copyId]
 	const tStart = new Date().toISOString()
+	track.tStart = tStart
 	try {	
 		const edgeId = job.data.src.name+'->'+job.data.dst.name
 		const edge = network.edges[edgeId] || ['scp']
+		track.status = "START_COPY"
 		for(let p of edge.protocolPreference) {
 			if(p == 'fdt') {
 				await(fdtCopy(job.data.src, job.data.dst, null))
@@ -612,16 +711,26 @@ queue.process('copy', async (job, done) => {
 				break
 			}
 		}
+		track.status = "DONE_COPY"
+		const tDiff = new Date() - new Date(tStart)
+		track.duration = tDiff
 	}catch(err) {
 		console.log(err)
 		status = 'error'
+		track.status = "ERROR_COPY"
+		track.errorDetails = err
+
 		trackCopies[trackId]['error'].push({
 				src: job.data.src,
 				dst: job.data.dst,
 				error: err
 		})
 	}
-	const tDiff = new Date() - new Date(tStart)
+	if(job.data.type == "copy") {
+		finishAndCallWebhook(job)
+	}
+	/*const tDiff = new Date() - new Date(tStart)
+
 	trackCopies[trackId]['counter'] -= 1
 	trackCopies[trackId]['ready'].push({
 				time: tDiff,
@@ -644,7 +753,7 @@ queue.process('copy', async (job, done) => {
 				//console.log(err)
 			}
 		}
-	}
+	}*/
 	
 	done(null, {
 		src: job.data.src,
