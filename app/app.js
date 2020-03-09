@@ -212,7 +212,8 @@ app.get(api + '/version', (req,res) => {
 	})
 })
 
-app.post(api + '/move',  async (req, res) => {
+app.post(api + '/move', checkToken, async (req, res) => {
+//app.post(api + '/move',  async (req, res) => {
 	const copyReq = req.body
 	const copies = copyReq.cmd
 	const webhook = copyReq.webhook
@@ -280,8 +281,8 @@ app.post(api + '/move',  async (req, res) => {
 	})
 })
 
-//app.post(api + '/copy', checkToken, async (req, res) => {
-app.post(api + '/copy',  async (req, res) => {
+app.post(api + '/copy', checkToken, async (req, res) => {
+//app.post(api + '/copy',  async (req, res) => {
 	const copyReq = req.body
 	const copies = copyReq.cmd
 	const webhook = copyReq.webhook
@@ -316,7 +317,8 @@ app.post(api + '/copy',  async (req, res) => {
 	})
 })
 
-app.post(api + '/list', async (req, res) => {
+app.post(api + '/list', checkToken, async (req, res) => {
+//app.post(api + '/list', async (req, res) => {
 	const node = translateNames(req.body)
 	sshCommand(node, 'find ' + node.path).then(r => {
 		console.log(r)
@@ -330,7 +332,8 @@ app.post(api + '/list', async (req, res) => {
 	})
 })
 
-app.get(api + '/folders',  async (req, res) => {
+app.get(api + '/folders',  checkToken, async (req, res) => {
+//app.get(api + '/folders',  async (req, res) => {
 	const results = {}
 	Object.keys(sshAdaptorsWithNames).forEach(k => {
 		const v = sshAdaptorsWithNames[k]
@@ -350,8 +353,8 @@ app.get(api + '/folders',  async (req, res) => {
 	res.status(200).send(results)
 })
 
-//app.get(api + '/status/:trackId',  checkToken, async (req, res) => {
-app.get(api + '/status/:trackId', async (req, res) => {
+app.get(api + '/status/:trackId',  checkToken, async (req, res) => {
+//app.get(api + '/status/:trackId', async (req, res) => {
 	const trackId = req.params.trackId
 	res.status(200).send(trackCopies[trackId])
 })
