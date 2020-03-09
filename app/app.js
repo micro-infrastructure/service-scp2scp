@@ -48,6 +48,7 @@ if(network) {
 		edges: {},
 		nodes: {}
 	}
+}
 if(infra) {
 	infra.folders = infra.folders || []
 	console.log("loaded infra user infra: ", infraPath)
