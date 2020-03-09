@@ -45,8 +45,8 @@ if(network) {
 	console.log("loaded network graph graph: ", netPath)
 } else {
 	network = {
-		edges = {},
-		nodes = {}
+		edges: {},
+		nodes: {}
 	}
 if(infra) {
 	infra.folders = infra.folders || []
