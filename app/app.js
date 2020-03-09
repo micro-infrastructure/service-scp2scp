@@ -394,8 +394,8 @@ function sshCommand(node, cmd) {
 			host: node.host,
 			port: node.port || 22,
 			username: node.user,
-			privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/process_id_rsa")
-			//privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
+			//privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/process_id_rsa")
+			privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
 		})
 	})
 }
