@@ -22,6 +22,8 @@ const jwt = require('jsonwebtoken')
 const randomstring = require('randomstring')
 const eventEmitter = new events.EventEmitter()
 
+const VERSION = "0.2.0"
+
 const cmdOptions = [
 	{ name: 'port', alias: 'p', type: Number},
 	{ name: 'redis', type: String },
@@ -199,6 +201,12 @@ function checkToken(req, res, next) {
 async function copy(req, res) {
 }
 // api urls
+app.get(api + '/version', (req,res) => {
+	res.status(200).send({
+		version: VERSION
+	})
+})
+
 app.post(api + '/move',  async (req, res) => {
 	const copyReq = req.body
 	const copies = copyReq.cmd
@@ -305,7 +313,6 @@ app.post(api + '/copy',  async (req, res) => {
 
 app.post(api + '/list', async (req, res) => {
 	const node = translateNames(req.body)
-	//node.user = 'reggie'
 	sshCommand(node, 'find ' + node.path).then(r => {
 		console.log(r)
 		const out = r.stdout.split('\n').filter(e => {
