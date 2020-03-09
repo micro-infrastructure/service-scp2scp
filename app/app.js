@@ -43,7 +43,11 @@ const network = (fs.existsSync(netPath)) ? require(netPath) : null
 
 if(network) {
 	console.log("loaded network graph graph: ", netPath)
-}
+} else {
+	network = {
+		edges = {},
+		nodes = {}
+	}
 if(infra) {
 	infra.folders = infra.folders || []
 	console.log("loaded infra user infra: ", infraPath)
