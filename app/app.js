@@ -528,6 +528,10 @@ function setupSingularityServer(s) {
 }
 
 function fdtCopy(src, dst) {
+	// TODO
+	// not working yet
+	
+
 	console.log("fdt copy...")
 	src = translateNames(src)
 	dst = translateNames(dst)
@@ -706,7 +710,9 @@ queue.process('copy', async (job, done) => {
 	track.tStart = tStart
 	try {	
 		const edgeId = job.data.src.name+'->'+job.data.dst.name
-		const edge = network.edges[edgeId] || ['scp']
+		const edge = network.edges[edgeId] || { 
+			protocolPreference: ['scp']
+		}
 		track.status = "START_COPY"
 		for(let p of edge.protocolPreference) {
 			if(p == 'fdt') {
