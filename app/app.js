@@ -22,7 +22,7 @@ const jwt = require('jsonwebtoken')
 const randomstring = require('randomstring')
 const eventEmitter = new events.EventEmitter()
 
-const VERSION = "0.2.0"
+const VERSION = "0.2.1"
 
 const cmdOptions = [
 	{ name: 'port', alias: 'p', type: Number},
