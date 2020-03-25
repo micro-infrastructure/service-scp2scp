@@ -256,9 +256,11 @@ app.post(api + '/move', checkToken, async (req, res) => {
 			})
 			job.on('failed', function(e) {
 				if(e) {
+					// copy failed so move will fail
+					console.log(e)
 					const error = JSON.parse(e)
 					console.log("error copying file: ", error)
-					// handle error moving
+					finishAndCallWebhook(job)
 					return
 				}
 			})
@@ -677,10 +679,6 @@ async function copySingularityClient(s, c) {
 }
 
 function fdtCopy(src, dst) {
-	// TODO
-	// not working yet
-	
-
 	console.log("fdt copy...")
 	src = translateNames(src)
 	dst = translateNames(dst)
@@ -949,33 +947,12 @@ queue.process('copy', async (job, done) => {
 	if(job.data.type == "copy") {
 		finishAndCallWebhook(job)
 	}
-	/*const tDiff = new Date() - new Date(tStart)
+	const error = (track.errorDetails) ? JSON.stringify({
+		status: track.status,
+		details:  track.errorDetails
+	}) : null
 
-	trackCopies[trackId]['counter'] -= 1
-	trackCopies[trackId]['ready'].push({
-				time: tDiff,
-				src: job.data.src,
-				dst: job.data.dst
-	})
-	if(trackCopies[trackId]['counter'] <= 0) {
-		trackCopies[trackId]['status'] = status
-		trackCopies[trackId]['time'] = new Date() - new Date(trackCopies[trackId]['timestamp'])
-		const wh = trackCopies[job.data.ref]['webhook']
-		if (wh) {
-			try{
-				console.log("calling webhook")
-				await rp.post(wh.url, {json: {
-					id: job.data.id,
-					status: status,
-					details: trackCopies[trackId]
-				}})
-			} catch(err) {
-				//console.log(err)
-			}
-		}
-	}*/
-	
-	done(null, {
+	done(error, {
 		src: job.data.src,
 		dst: job.data.dst
 	})
