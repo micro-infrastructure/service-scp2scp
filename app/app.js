@@ -37,8 +37,8 @@ const cmdOptions = [
 const options = cmdArgs(cmdOptions)
 const infraPath = options.infraPath || '/assets/infra.json'
 const netPath = options.netPath || '/assets/network.json'
-const infra = (fs.existsSync(infraPath)) ? require(infraPath) : null
-const network = (fs.existsSync(netPath)) ? require(netPath) : null
+let infra = (fs.existsSync(infraPath)) ? require(infraPath) : null
+let network = (fs.existsSync(netPath)) ? require(netPath) : null
 
 
 if(network) {
@@ -64,8 +64,13 @@ Object.keys(users).forEach(k => {
 })
 
 if(!options.sshPrivateKey) {
-	//options.sshPrivateKey =  require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
-	options.sshPrivateKey =  process.env.HOME + "/.ssh/id_rsa"
+	const processPath = process.env.HOME + "/.ssh/process_id_rsa"
+	const defaultPath = process.env.HOME + "/.ssh/id_rsa"
+	if(fs.existsSync(processPath)) {
+		options.sshPrivateKey =  processPath
+	} else {
+		options.sshPrivateKey =  defaultPath
+	}
 }
 
 const api = '/api/v1'
@@ -153,6 +158,11 @@ function isHiddenFile(filename) {
 }
 
 function checkToken(req, res, next) {
+	//bypass
+	//TODO remove
+	next()
+	return
+	///
 	if (req.user) {
 		next()
 		return
@@ -364,6 +374,49 @@ function trim(s) {
 	return s.replace(/^\s+|\s+$/g,'')
 }
 
+function sshCommand2(node, cmd, close) {
+	return new Promise((resolve, reject) => {
+		const conn = new ssh()
+		let stdout = ''
+		let stderr = ''
+		const startTime = new Date().toISOString();
+		conn.on('error', err => {
+			reject(err)
+		})
+		conn.on('ready', () => {
+			//console.log('[' + node.host + '] connected')
+			conn.exec(cmd, (err, stream) => {
+				if (err) reject(err)
+				// resolve immediately
+				// use callback to signal return of blocking call
+				resolve()
+				stream.on('close', (code, signal) => {
+					conn.end()
+					if(close) {
+						close(null, { 
+							stdout: stdout,
+							stderr: stderr,
+							startTime: startTime,
+							endTime: new Date().toISOString()
+						})
+					}
+				}).on('data', data => {
+					//console.log("[" + node.host + "][" + cmd + "][stdout] " + trim(data.toString('utf-8')))
+					stdout += data.toString('utf-8') + '\n'
+				}).stderr.on('data', data => {
+					//console.log("[" + node.host + "][" + cmd + "][stderr] " + trim(data.toString('utf-8')))
+					stderr += data.toString('utf-8')
+				})
+			})
+		}).connect({
+			host: node.host,
+			port: node.port || 22,
+			username: node.user,
+			//privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/process_id_rsa")
+			privateKey: require('fs').readFileSync(options.sshPrivateKey)
+		})
+	})
+}
 function sshCommand(node, cmd) {
 	return new Promise((resolve, reject) => {
 		const conn = new ssh()
@@ -398,7 +451,7 @@ function sshCommand(node, cmd) {
 			port: node.port || 22,
 			username: node.user,
 			//privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/process_id_rsa")
-			privateKey: require('fs').readFileSync(process.env.HOME + "/.ssh/id_rsa")
+			privateKey: require('fs').readFileSync(options.sshPrivateKey)
 		})
 	})
 }
@@ -531,8 +584,81 @@ async function setupCharlieServer(s) {
 	
 }
 
-function setupSingularityServer(s) {
+let ourPids = {}
+
+async function setupSingularityServer(s, cb) {
 	console.log("Singularity: ", s)
+	const setupCommands = []
+	const imageFile = s.protocols.fdt.imageName
+	const serverPort = s.openTcpPorts[0]
+	//const preCommands = s.protocols.fdt.preCommands.join(' && ')
+	const pidCmd = "ps aux | grep '" + 
+		s.protocols.fdt.processPattern.replace("$PORT", serverPort) + "'" +
+		" | grep -v grep | awk '{print $2}'"
+	const killCmd = pidCmd + " | xargs kill -9"
+
+	const path = s.path + ":" + s.protocols.fdt.bindCntPath
+	const runCmd = "singularity run -B " + path + " " + imageFile + " server " + serverPort
+	const node = {
+		host: s.details.host,
+		user: s.details.user
+	}
+	const r = await sshCommand(node, pidCmd)
+	const pid = (r.stdout) ? parseInt(r.stdout) : null
+
+	console.log("PID: ", pid)
+	if((pid) && (ourPids[pid])) {
+		console.log("Already running: ", ourPids[pid])
+		return
+	} else if(!pid) {
+		setupCommands.push(runCmd)
+		for(i=0; i < setupCommands.length; i++){
+			const c = setupCommands[i]
+			console.log("run cmd: ", c)
+			const r = await sshCommand2(node, c, (err, res) => {
+				console.log("return from cmd: ", c)
+				//console.log("response: ", res)
+			})
+		}
+		cb(null, r)
+		/*const checkPid = await sshCommand(node, pidCmd)
+		const newPid = (r.stdout) ? parseInt(r.stdout) : null
+		if(newPid) {
+			ourPids[newPid] = runCmd
+			console.log(ourPids)
+		} else {
+			console.log("No pid found!!")
+		}*/
+		// TODO
+		// find a way to stop service after copy.
+
+	} else {
+		console.log("Running service by someone else.")
+	}
+}
+
+async function copySingularityClient(s, c) {
+	console.log("Singularity client")
+	const imageFile = c.protocols.fdt.imageName
+	const serverPort = s.openTcpPorts[0]
+	const srcFile = c.protocols.fdt.bindCntPath + "/" + c.details.file
+	const dstFile = s.details.host + ":" + serverPort +":" + s.protocols.fdt.bindCntPath + "/" 
+	const path = c.path + ":" + c.protocols.fdt.bindCntPath
+	console.log(s)
+	console.log(c)
+	const setupCommands = []
+	const runCmd = "singularity run -B " + path + " " + imageFile + " copy " + srcFile + " " + dstFile
+	const node = {
+		host: c.details.host,
+		user: c.details.user
+	}
+	setupCommands.push(runCmd)
+	for(i=0; i < setupCommands.length; i++){
+		const c = setupCommands[i]
+		console.log("run cmd: ", c)
+		const r = await sshCommand(node, c)
+		//console.log("copy done: ", r)
+	}
 }
 
 function fdtCopy(src, dst) {
@@ -547,15 +673,6 @@ function fdtCopy(src, dst) {
 	console.log("src: ", src)
 	console.log("dst: ", dst)
 
-
-	/*src.host = src.host || sshAdaptorsWithNames[src.name]['host']
-	src.user = src.user || sshAdaptorsWithNames[src.name]['user']
-	src.path = src.path || sshAdaptorsWithNames[src.name]['path'] + '/' + src.file
-	
-	dst.host = dst.host || sshAdaptorsWithNames[dst.name]['host']
-	dst.user = dst.user || sshAdaptorsWithNames[dst.name]['user']
-	dst.path = dst.path || sshAdaptorsWithNames[dst.name]['path'] + '/' + dst.file*/
-
 	const srcNode = network.nodes[src.name]
 	const dstNode = network.nodes[dst.name]
 
@@ -568,16 +685,20 @@ function fdtCopy(src, dst) {
 			// set server
 			server = dstNode
 			server.name = dst.name
+			server.path = dst.path
 			server.details = dst
 			client = srcNode
 			client.name = src.name
+			client.path = path.dirname(src.path)
 			client.details = src
 		} else if (srcNode.openTcpPorts.length > 0) {
 			server = srcNode
 			server.name = src.name
+			server.path = path.dirname(src.path)
 			server.details = src
 			client = dstNode
 			client.name = dst.name
+			client.path = dst.path
 			client.details = dst
 		}
 		if (!server) {
@@ -588,22 +709,44 @@ function fdtCopy(src, dst) {
 		const fdtServer = server.protocols.fdt
 		if(fdtServer.cntInterface == "charliecloud") {
 			//setupCharlieServer(server)
+			// not implemented
+			reject("charlie cloud not implemented")
 		}
 		if(fdtServer.cntInterface == "singularity") {
-			//setupSingularityServer(server)
+			setupSingularityServer(server, async (err, r) => {
+					if(err) {
+						reject("setup server error: ", err)
+						return
+					}
+					// set up client node
+					// copy file
+					copySingularityClient(server, client).then(() => {
+						getHashOfDstAndSrc(src, dst).then(r => {
+							console.log("src, dst hash: ", r)
+							if(r.src.hash == r.dst.hash) {
+								console.log("hash match.")
+								resolve({
+									src: src,
+									dst: dst
+								})
+							}
+						}).catch(err => {
+							console.log(err)
+							reject("calc hash error")
+						})
+					}).catch(err => {
+						console.log(err)
+						reject("copy error")
+					})
+			})
 		}
-		// set up client node
-		// copy file
 		// tear down client node
 		// tear down server node
-		resolve({
-			src: src,
-			dst: dst
-		})
 	})
 }
 
 function getHashOfDstAndSrc(src, dst) {
+	console.log("calculating src, dst hash.")
 	return new Promise((resolve, reject) => {
 		const dstNode = {
 			host: dst.host,
