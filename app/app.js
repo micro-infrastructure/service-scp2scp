@@ -160,8 +160,8 @@ function isHiddenFile(filename) {
 function checkToken(req, res, next) {
 	//bypass
 	//TODO remove
-	next()
-	return
+	////next()
+	////return
 	///
 	if (req.user) {
 		next()
