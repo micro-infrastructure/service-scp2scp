@@ -488,15 +488,19 @@ function sshCopy(src, dst) {
 
 	console.log("src: ", src)
 	console.log("dst: ", dst)
-	/*src.host = src.host || sshAdaptorsWithNames[src.name]['host']
-	src.user = src.user || sshAdaptorsWithNames[src.name]['user']
-	src.path = src.path || sshAdaptorsWithNames[src.name]['path'] + '/' + src.file
-	
-	dst.host = dst.host || sshAdaptorsWithNames[dst.name]['host']
-	dst.user = dst.user || sshAdaptorsWithNames[dst.name]['user']
-	dst.path = dst.path || sshAdaptorsWithNames[dst.name]['path'] + '/' + dst.file*/
-
-	return new Promise((resolve, reject) => {
+	return new Promise(async(resolve, reject) => {
+		try{
+			const exists = await remoteFileExists(src)
+			if(!exists) {
+				console.log("file does not exist " + src.file)
+				reject("source file not exists.")
+				return
+			}
+		}catch(err){
+			console.log(err)
+			reject(err)
+			return
+		}
 		const conn = new ssh()
 		conn.on('error', (err) => {
 			console.log(err)
@@ -511,9 +515,20 @@ function sshCopy(src, dst) {
 				stream.on('close', (code, signal) => {
 					console.log("[SCP] close")
 					conn.end()
-					resolve({
-						src: src,
-						dst: dst
+					getHashOfDstAndSrc(src, dst).then(r => {
+						console.log("src, dst hash: ", r)
+						if((r.src.md5sum) && (r.src.md5sum == r.dst.md5sum)) {
+							console.log("hash match.")
+							src.md5sum = r.src.md5sum
+							dst.md5sum = r.dst.md5sum
+							resolve({
+								src: src,
+								dst: dst
+							})
+						}
+					}).catch(err => {
+						console.log(err)
+						reject("calc hash error")
 					})
 				}).on('data', (data) => {
 					console.log("[SCP STDOUT] " + data)
@@ -670,6 +685,7 @@ function fdtCopy(src, dst) {
 	src = translateNames(src)
 	dst = translateNames(dst)
 
+
 	console.log("src: ", src)
 	console.log("dst: ", dst)
 
@@ -677,7 +693,20 @@ function fdtCopy(src, dst) {
 	const dstNode = network.nodes[dst.name]
 
 
-	return new Promise((resolve, reject) => {
+	return new Promise(async (resolve, reject) => {
+		try{
+			const exists = await remoteFileExists(src)
+			if(!exists) {
+				console.log("file does not exist " + src.file)
+				reject("source file not exists.")
+				return
+			}
+		}catch(err){
+			console.log(err)
+			reject(err)
+			return
+		}
+
 		let server = null
 		let client = null
 		// choose server and client
@@ -723,8 +752,10 @@ function fdtCopy(src, dst) {
 					copySingularityClient(server, client).then(() => {
 						getHashOfDstAndSrc(src, dst).then(r => {
 							console.log("src, dst hash: ", r)
-							if(r.src.hash == r.dst.hash) {
+							if((r.src.md5sum) && (r.src.md5sum == r.dst.md5sum)) {
 								console.log("hash match.")
+								src.md5sum = r.src.md5sum
+								dst.md5sum = r.dst.md5sum
 								resolve({
 									src: src,
 									dst: dst
@@ -742,6 +773,29 @@ function fdtCopy(src, dst) {
 		}
 		// tear down client node
 		// tear down server node
+	})
+}
+
+function remoteFileExists(src) {
+	console.log("checking file exists: ", src)
+	return new Promise((resolve, reject) => {
+		const srcNode = {
+			host: src.host,
+			user: src.user,
+			file: src.path
+		}
+
+		sshCommand(srcNode, 'ls ' + srcNode.file).then(r => {
+			console.log("return from test -f " + srcNode.file)
+			if(r.stdout) {
+				resolve(true)
+			} else {
+				resolve(false)
+			}
+		}).catch(e => {
+			console.log(e)
+			reject(e)
+		})
 	})
 }
 
@@ -864,16 +918,24 @@ queue.process('copy', async (job, done) => {
 		const edge = network.edges[edgeId] || { 
 			protocolPreference: ['scp']
 		}
+		if(job.data.protocol) {
+			edge.protocolPreference = [job.data.protocol]
+		}
 		track.status = "START_COPY"
 		for(let p of edge.protocolPreference) {
 			if(p == 'fdt') {
-				await(fdtCopy(job.data.src, job.data.dst, null))
+				const out = await(fdtCopy(job.data.src, job.data.dst, null))
+				track.src.md5sum = out.src.md5sum
+				track.dst.md5sum = out.dst.md5sum
 				break
 			}
 			if(p == 'scp') {
-				await(sshCopy(job.data.src, job.data.dst, null))
+				const out = await(sshCopy(job.data.src, job.data.dst, null))
+				track.src.md5sum = out.src.md5sum
+				track.dst.md5sum = out.dst.md5sum
 				break
 			}
+			throw("Error", "no protocol handler: " + p)
 		}
 		track.status = "DONE_COPY"
 		const tDiff = new Date() - new Date(tStart)
@@ -883,12 +945,6 @@ queue.process('copy', async (job, done) => {
 		status = 'error'
 		track.status = "ERROR_COPY"
 		track.errorDetails = err
-
-		trackCopies[trackId]['error'].push({
-				src: job.data.src,
-				dst: job.data.dst,
-				error: err
-		})
 	}
 	if(job.data.type == "copy") {
 		finishAndCallWebhook(job)
