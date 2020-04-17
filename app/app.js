@@ -23,7 +23,6 @@ const randomstring = require('randomstring')
 const eventEmitter = new events.EventEmitter()
 
 const VERSION = "0.2.1"
-const DEV=true
 
 const cmdOptions = [
 	{ name: 'port', alias: 'p', type: Number},
@@ -32,10 +31,12 @@ const cmdOptions = [
 	{ name: 'amqp', type: String },
     { name: 'infraPath', type: String},
     { name: 'netPath', type: String},
-	{ name: 'sshPrivateKey', type: String }
+	{ name: 'sshPrivateKey', type: String },
+	{ name: 'dev', type: Boolean}
 ]
 
 const options = cmdArgs(cmdOptions)
+const DEV = options.dev
 const infraPath = options.infraPath || '/assets/infra.json'
 const netPath = options.netPath || '/assets/network.json'
 const usersPath = options.users || '/assets/jwtusers.json'
