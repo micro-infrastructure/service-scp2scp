@@ -346,6 +346,16 @@ app.post(api + '/remove', checkToken, async (req, res) => {
 	})
 })
 
+app.post(api + '/mkdir', checkToken, async (req, res) => {
+	const node = translateNames(req.body)
+	sshCommand(node, 'mkdir -p ' + node.path).then(r => {
+		res.status(200).send(r)
+	}).catch(e => {
+		console.log(e)
+		res.status(500).send(e)
+	})
+})
+
 app.post(api + '/list', checkToken, async (req, res) => {
 	const node = translateNames(req.body)
 	sshCommand(node, 'find ' + node.path).then(r => {
