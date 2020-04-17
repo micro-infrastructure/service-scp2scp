@@ -23,6 +23,7 @@ const randomstring = require('randomstring')
 const eventEmitter = new events.EventEmitter()
 
 const VERSION = "0.2.1"
+const DEV=true
 
 const cmdOptions = [
 	{ name: 'port', alias: 'p', type: Number},
@@ -37,8 +38,10 @@ const cmdOptions = [
 const options = cmdArgs(cmdOptions)
 const infraPath = options.infraPath || '/assets/infra.json'
 const netPath = options.netPath || '/assets/network.json'
+const usersPath = options.users || '/assets/jwtusers.json'
 let infra = (fs.existsSync(infraPath)) ? require(infraPath) : null
 let network = (fs.existsSync(netPath)) ? require(netPath) : null
+let users = (fs.existsSync(usersPath)) ? require(usersPath) : []
 
 
 if(network) {
@@ -54,10 +57,11 @@ if(infra) {
 	console.log("loaded infra user infra: ", infraPath)
 	console.log(infra.folders)
 }
+if(users) {
+	// list of user's public keys allowed to access the service. Used to check JWT signitature 
+	console.log("loaded user certs: ", users)
+}
 
-
-// list of user's public keys allowed to access the service. Used to check JWT signitature 
-const users = (options.users) ? require(options.users) : {}
 Object.keys(users).forEach(k => {
 	const u = users[k]
 	u.decodedPublicKey = decodeBase64(u.publicKey)
@@ -158,11 +162,11 @@ function isHiddenFile(filename) {
 }
 
 function checkToken(req, res, next) {
-	//bypass
-	//TODO remove
-	////next()
-	////return
-	///
+	//bypass in dev mode
+	if(DEV) {
+		next()
+		return
+	}
 	if (req.user) {
 		next()
 		return
@@ -179,6 +183,9 @@ function checkToken(req, res, next) {
 	const user = preDecoded.email || preDecoded.user
 	if(!users[user]) {
 		res.status(403).send()
+	}
+	if(!users[user]) {
+		console.log("[WARN] no cert found for: " + user)
 	}
 
 	const cert = users[user].decodedPublicKey
@@ -329,12 +336,22 @@ app.post(api + '/copy', checkToken, async (req, res) => {
 	})
 })
 
+app.post(api + '/remove', checkToken, async (req, res) => {
+	const node = translateNames(req.body)
+	sshCommand(node, 'rm -f ' + node.path).then(r => {
+		res.status(200).send(r)
+	}).catch(e => {
+		console.log(e)
+		res.status(500).send(e)
+	})
+})
+
 app.post(api + '/list', checkToken, async (req, res) => {
-//app.post(api + '/list', async (req, res) => {
 	const node = translateNames(req.body)
 	sshCommand(node, 'find ' + node.path).then(r => {
-		console.log(r)
-		const out = r.stdout.split('\n').filter(e => {
+		const out = r.stdout.split('\n').map(e => {
+			return e.replace(node.absPath, '')
+		}).filter(e => {
 			return e
 		})
 		res.status(200).send(out)
@@ -345,7 +362,6 @@ app.post(api + '/list', checkToken, async (req, res) => {
 })
 
 app.get(api + '/folders',  checkToken, async (req, res) => {
-//app.get(api + '/folders',  async (req, res) => {
 	const results = {}
 	Object.keys(sshAdaptorsWithNames).forEach(k => {
 		const v = sshAdaptorsWithNames[k]
@@ -467,16 +483,23 @@ function translateNames(s) {
 	if(!folders[s.name]) folders[s.name] = {}
 	s.host = s.host || sshAdaptorsWithNames[s.name]['host'] || folders[s.name]['host']
 	s.user = s.user || sshAdaptorsWithNames[s.name]['user'] || folders[s.name]['user']
-	s.path = s.path || sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['path']
+	s.path = s.path || '/' || sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder'] 
 
 	if(s.path.slice(-1) != '/') {
 		s.path += '/'
+	}
+	s.relPath = s.path
+	s.absPath = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder']
+	if(s.relativePath) {
+		s.path = s.absPath + '/' + s.relativePath
+		s.path = s.path.replace('//', '/')
+		return s
 	}
 	if(s.file) {
 		s.path += s.file
 	} else {
 		const relPath = s.path
-		s.path = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['path'] 
+		s.path = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder'] 
 		s.path +=  '/' + relPath
 		s.path = s.path.replace('//', '/')
 	}
@@ -517,6 +540,7 @@ function sshCopy(src, dst) {
 				stream.on('close', (code, signal) => {
 					console.log("[SCP] close")
 					conn.end()
+					dst.endCopyTime = new Date().toISOString()
 					getHashOfDstAndSrc(src, dst).then(r => {
 						console.log("src, dst hash: ", r)
 						if((r.src.md5sum) && (r.src.md5sum == r.dst.md5sum)) {
@@ -748,6 +772,7 @@ function fdtCopy(src, dst) {
 					// set up client node
 					// copy file
 					copySingularityClient(server, client).then(() => {
+						dst.endCopyTime = new Date().toISOString()
 						getHashOfDstAndSrc(src, dst).then(r => {
 							console.log("src, dst hash: ", r)
 							if((r.src.md5sum) && (r.src.md5sum == r.dst.md5sum)) {
@@ -937,7 +962,8 @@ queue.process('copy', async (job, done) => {
 		}
 		track.status = "DONE_COPY"
 		const tDiff = new Date() - new Date(tStart)
-		track.duration = tDiff
+		track.dst.totalDuration = tDiff
+		track.dst.copyDuration = new Date(track.dst.endCopyTime) - new Date(tStart) 
 	}catch(err) {
 		console.log(err)
 		status = 'error'
