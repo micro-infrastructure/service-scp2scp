@@ -162,6 +162,16 @@ function isHiddenFile(filename) {
 	return path.basename(filename).startsWith('.')
 }
 
+function isGoodPath(p) {
+	if(!p) {
+		return false
+	}
+	if(p.indexOf('..') > -1) {
+		return false
+	}
+	return true
+}
+
 function checkToken(req, res, next) {
 	//bypass in dev mode
 	if(DEV) {
@@ -340,7 +350,7 @@ app.post(api + '/copy', checkToken, async (req, res) => {
 app.post(api + '/remove', checkToken, async (req, res) => {
 	const node = translateNames(req.body)
 
-	if(node.file.indexOf('..') > -1) {
+	if(!isGoodPath(node.file)) {
 		res.status(400).send("bad file path")
 		return
 	}
@@ -356,6 +366,10 @@ app.post(api + '/remove', checkToken, async (req, res) => {
 
 app.post(api + '/mkdir', checkToken, async (req, res) => {
 	const node = translateNames(req.body)
+	if(!isGoodPath(node.path)) {
+		res.status(400).send("bad file path")
+		return
+	}
 	sshCommand(node, 'mkdir -p ' + node.path).then(r => {
 		res.status(200).send(r)
 	}).catch(e => {
@@ -366,6 +380,11 @@ app.post(api + '/mkdir', checkToken, async (req, res) => {
 
 app.post(api + '/list', checkToken, async (req, res) => {
 	const node = translateNames(req.body)
+	if(!isGoodPath(node.path)) {
+		res.status(400).send("bad file path")
+		return
+	}
+
 	sshCommand(node, 'find ' + node.path).then(r => {
 		const out = r.stdout.split('\n').map(e => {
 			return e.replace(node.absPath, '')
