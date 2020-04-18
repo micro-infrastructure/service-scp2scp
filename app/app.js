@@ -339,7 +339,14 @@ app.post(api + '/copy', checkToken, async (req, res) => {
 
 app.post(api + '/remove', checkToken, async (req, res) => {
 	const node = translateNames(req.body)
-	sshCommand(node, 'rm -f ' + node.path).then(r => {
+
+	if(node.file.indexOf('..') > -1) {
+		res.status(400).send("bad file path")
+		return
+	}
+
+	const path = node.absPath + node.file
+	sshCommand(node, 'rm -f ' + path).then(r => {
 		res.status(200).send(r)
 	}).catch(e => {
 		console.log(e)
@@ -501,11 +508,6 @@ function translateNames(s) {
 	}
 	s.relPath = s.path
 	s.absPath = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder']
-	if(s.relativePath) {
-		s.path = s.absPath + '/' + s.relativePath
-		s.path = s.path.replace('//', '/')
-		return s
-	}
 	if(s.file) {
 		s.path += s.file
 	} else {
