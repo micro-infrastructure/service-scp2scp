@@ -275,7 +275,7 @@ app.post(api + '/move', checkToken, async (req, res) => {
 			job.on('failed', function(e) {
 				if(e) {
 					// copy failed so move will fail
-					console.log(e)
+					//console.log(e)
 					const error = JSON.parse(e)
 					console.log("error copying file: ", error)
 					finishAndCallWebhook(job)
@@ -355,8 +355,10 @@ app.post(api + '/remove', checkToken, async (req, res) => {
 		return
 	}
 
+	const cmd = (node.recursive) ? "rm -rf ": "rm -f "
+
 	const path = node.absPath + node.file
-	sshCommand(node, 'rm -f ' + path).then(r => {
+	sshCommand(node, cmd + path).then(r => {
 		res.status(200).send(r)
 	}).catch(e => {
 		console.log(e)
@@ -384,7 +386,6 @@ app.post(api + '/list', checkToken, async (req, res) => {
 		res.status(400).send("bad file path")
 		return
 	}
-
 	sshCommand(node, 'find ' + node.path).then(r => {
 		const out = r.stdout.split('\n').map(e => {
 			return e.replace(node.absPath, '')
@@ -529,6 +530,7 @@ function translateNames(s) {
 	s.absPath = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder']
 	if(s.file) {
 		s.path += s.file
+		s.absFilePath = s.absPath + s.file
 	} else {
 		const relPath = s.path
 		s.path = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder'] 
@@ -565,7 +567,7 @@ function sshCopy(src, dst) {
 		})
 		conn.on('ready', () => {
 			console.log("[SSH] connected")
-			const cmd = 'scp -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q ' + src.path + " " + dst.user + '@' + dst.host + ":" + dst.path
+			const cmd = 'scp -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q ' + src.absFilePath + " " + dst.user + '@' + dst.host + ":" + dst.absPath + '/'
 			console.log("cmd: ", cmd)
 			conn.exec(cmd, (err, stream) => {
 				if (err) reject(err)
@@ -680,8 +682,15 @@ async function setupSingularityServer(s, cb) {
 	const pid = (r.stdout) ? parseInt(r.stdout) : null
 
 	console.log("PID: ", pid)
+
+	/*TODO solve hanging process....
+	 * if((pid) && (!ourPids[pid])) {
+		console.log("Running service by someone else.....killing.")
+		const r = await sshCommand(node, killCmd)
+	}*/
 	if((pid) && (ourPids[pid])) {
 		console.log("Already running: ", ourPids[pid])
+		cb(null, r)
 		return
 	} else if(!pid) {
 		setupCommands.push(runCmd)
@@ -768,20 +777,20 @@ function fdtCopy(src, dst) {
 			// set server
 			server = dstNode
 			server.name = dst.name
-			server.path = dst.path
+			server.path = dst.absPath
 			server.details = dst
 			client = srcNode
 			client.name = src.name
-			client.path = path.dirname(src.path)
+			client.path = src.absPath
 			client.details = src
 		} else if (srcNode.openTcpPorts.length > 0) {
 			server = srcNode
 			server.name = src.name
-			server.path = path.dirname(src.path)
+			server.path = src.absPath
 			server.details = src
 			client = dstNode
 			client.name = dst.name
-			client.path = dst.path
+			client.path = dst.absPath
 			client.details = dst
 		}
 		if (!server) {
@@ -837,9 +846,8 @@ function remoteFileExists(src) {
 		const srcNode = {
 			host: src.host,
 			user: src.user,
-			file: src.path
+			file: src.absFilePath
 		}
-
 		sshCommand(srcNode, 'ls ' + srcNode.file).then(r => {
 			console.log("return from test -f " + srcNode.file)
 			if(r.stdout) {
@@ -860,12 +868,12 @@ function getHashOfDstAndSrc(src, dst) {
 		const dstNode = {
 			host: dst.host,
 			user: dst.user,
-			file: dst.path + path.basename(src.path)
+			file: dst.absPath + '/' + path.basename(src.path)
 		}
 		const srcNode = {
 			host: src.host,
 			user: src.user,
-			file: src.path
+			file: src.absFilePath
 		}
 
 		sshCommand(dstNode, 'md5sum ' + dstNode.file).then(r => {
@@ -943,11 +951,14 @@ async function finishAndCallWebhook(job) {
 		if (wh) {
 			try{
 				console.log("calling webhook")
-				await rp.post(wh.url, {json: {
-					id: job.data.id,
-					//status: trackCopies[trackId]['status'],
-					details: trackCopies[trackId]
-				}})
+				await rp.post(wh.url, {
+					headers: wh.headers,
+					json: {
+						id: job.data.id,
+						//status: trackCopies[trackId]['status'],
+						details: trackCopies[trackId]
+					}
+				})
 			} catch(err) {
 				console.log(err)
 			}
