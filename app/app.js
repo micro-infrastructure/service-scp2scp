@@ -386,7 +386,8 @@ app.post(api + '/list', checkToken, async (req, res) => {
 		res.status(400).send("bad file path")
 		return
 	}
-	sshCommand(node, 'find ' + node.path).then(r => {
+	const opts = (node.recursive) ? "" : " -maxdepth 1 "
+	sshCommand(node, 'find ' + node.path + opts).then(r => {
 		const out = r.stdout.split('\n').map(e => {
 			return e.replace(node.absPath, '')
 		}).filter(e => {
