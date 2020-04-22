@@ -357,7 +357,7 @@ app.post(api + '/remove', checkToken, async (req, res) => {
 
 	const cmd = (node.recursive) ? "rm -rf ": "rm -f "
 
-	const path = node.absPath + node.file
+	const path = node.absRootPath + node.file
 	sshCommand(node, cmd + path).then(r => {
 		res.status(200).send(r)
 	}).catch(e => {
@@ -389,7 +389,7 @@ app.post(api + '/list', checkToken, async (req, res) => {
 	const opts = (node.recursive) ? "" : " -maxdepth 1 "
 	sshCommand(node, 'find ' + node.path + opts).then(r => {
 		const out = r.stdout.split('\n').map(e => {
-			return e.replace(node.absPath, '')
+			return e.replace(node.absRootPath, '')
 		}).filter(e => {
 			return e
 		})
@@ -528,10 +528,10 @@ function translateNames(s) {
 		s.path += '/'
 	}
 	s.relPath = s.path
-	s.absPath = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder']
+	s.absRootPath = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder']
 	if(s.file) {
 		s.path += s.file
-		s.absFilePath = s.absPath + s.file
+		s.absFullPath = s.absRootPath + s.file
 	} else {
 		const relPath = s.path
 		s.path = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder'] 
@@ -568,7 +568,8 @@ function sshCopy(src, dst) {
 		})
 		conn.on('ready', () => {
 			console.log("[SSH] connected")
-			const cmd = 'scp -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q ' + src.absFilePath + " " + dst.user + '@' + dst.host + ":" + dst.absPath + '/'
+			console.log(dst)
+			const cmd = 'scp -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q ' + src.absFullPath + " " + dst.user + '@' + dst.host + ":" + dst.absFullPath + '/'
 			console.log("cmd: ", cmd)
 			conn.exec(cmd, (err, stream) => {
 				if (err) reject(err)
@@ -778,20 +779,20 @@ function fdtCopy(src, dst) {
 			// set server
 			server = dstNode
 			server.name = dst.name
-			server.path = dst.absPath
+			server.path = dst.absRootPath
 			server.details = dst
 			client = srcNode
 			client.name = src.name
-			client.path = src.absPath
+			client.path = src.absRootPath
 			client.details = src
 		} else if (srcNode.openTcpPorts.length > 0) {
 			server = srcNode
 			server.name = src.name
-			server.path = src.absPath
+			server.path = src.absRootPath
 			server.details = src
 			client = dstNode
 			client.name = dst.name
-			client.path = dst.absPath
+			client.path = dst.absRootPath
 			client.details = dst
 		}
 		if (!server) {
@@ -847,7 +848,7 @@ function remoteFileExists(src) {
 		const srcNode = {
 			host: src.host,
 			user: src.user,
-			file: src.absFilePath
+			file: src.absFullPath
 		}
 		sshCommand(srcNode, 'ls ' + srcNode.file).then(r => {
 			console.log("return from test -f " + srcNode.file)
@@ -869,12 +870,12 @@ function getHashOfDstAndSrc(src, dst) {
 		const dstNode = {
 			host: dst.host,
 			user: dst.user,
-			file: dst.absPath + '/' + path.basename(src.path)
+			file: dst.absFullPath + '/' + path.basename(src.path)
 		}
 		const srcNode = {
 			host: src.host,
 			user: src.user,
-			file: src.absFilePath
+			file: src.absFullPath
 		}
 
 		sshCommand(dstNode, 'md5sum ' + dstNode.file).then(r => {
