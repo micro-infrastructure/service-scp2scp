@@ -569,6 +569,7 @@ function sshCopy(src, dst) {
 		})
 		conn.on('ready', () => {
 			console.log("[SSH] connected")
+			console.log(src)
 			console.log(dst)
 			//const cmd = 'scp -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q ' + src.absFullPath + " " + dst.user + '@' + dst.host + ":" + dst.absFullPath + '/'
 			const cmd = 'rsync -a --chmod=0664 -e "ssh -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" ' + src.absFullPath + " " + dst.user + '@' + dst.host + ":" + dst.absFullPath + '/'
