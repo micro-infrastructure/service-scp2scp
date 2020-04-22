@@ -373,7 +373,7 @@ app.post(api + '/mkdir', checkToken, async (req, res) => {
 		return
 	}
 	
-	sshCommand(node, 'mkdir -p ' + node.path ' && chmod -R 664 ' + node.path).then(r => {
+	sshCommand(node, 'mkdir -p -m 0774 ' + node.path).then(r => {
 		res.status(200).send(r)
 	}).catch(e => {
 		console.log(e)
