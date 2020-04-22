@@ -372,7 +372,8 @@ app.post(api + '/mkdir', checkToken, async (req, res) => {
 		res.status(400).send("bad file path")
 		return
 	}
-	sshCommand(node, 'mkdir -p ' + node.path).then(r => {
+	
+	sshCommand(node, 'mkdir -p ' + node.path ' && chmod -R 664 ' + node.path).then(r => {
 		res.status(200).send(r)
 	}).catch(e => {
 		console.log(e)
