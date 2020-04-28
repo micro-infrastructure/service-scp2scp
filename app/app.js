@@ -348,22 +348,41 @@ app.post(api + '/copy', checkToken, async (req, res) => {
 })
 
 app.post(api + '/remove', checkToken, async (req, res) => {
-	const node = translateNames(req.body)
+	const nodes = (Array.isArray(req.body)) ? req.body : [ req.body ]
+	const results = {}
+	let cnt = 0
 
-	if(!isGoodPath(node.file)) {
-		res.status(400).send("bad file path")
-		return
-	}
+	nodes.forEach(n => {
+		const node = translateNames(n)
 
-	const cmd = (node.recursive) ? "rm -rf ": "rm -f "
+		if(!isGoodPath(node.file)) {
+			res.status(400).send("bad file path")
+			return
+		}
 
-	const path = node.absRootPath + node.file
-	sshCommand(node, cmd + path).then(r => {
-		res.status(200).send(r)
-	}).catch(e => {
-		console.log(e)
-		res.status(500).send(e)
+		const cmd = (node.recursive) ? "rm -rf ": "rm -f "
+		const path = node.absRootPath + node.file
+		console.log("[INFO] removing file/dir: ", path)
+		sshCommand(node, cmd + path).then(r => {
+			cnt += 1
+			if(r.stderr) {
+				results[node.relPath] = "Error: " + r.stderr
+			} else {
+				results[node.relPath] = "Ok"
+			}
+		}).catch(e => {
+			cnt += 1
+			results[node.relPath] = "Error: " + e
+			console.log(e)
+		})
 	})
+	
+	const interval = setInterval(()=> {
+		if(cnt >= nodes.length) {
+			clearInterval(interval)
+			res.status(200).send(results)
+		}
+	}, 500)
 })
 
 app.post(api + '/mkdir', checkToken, async (req, res) => {
@@ -553,6 +572,7 @@ function translateNames(s) {
 	s.absRootPath = sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder']
 	if(s.file) {
 		s.path += s.file
+		s.relPath = s.path.replace('//','/')
 		s.absFullPath = s.absRootPath + s.file
 	} else {
 		const relPath = s.path
