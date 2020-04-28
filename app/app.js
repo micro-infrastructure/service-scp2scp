@@ -973,6 +973,8 @@ queue.process('delete', async (job, done) => {
 			}
 			done(JSON.stringify(error))
 		}
+	}).catch(e => {
+			done(JSON.stringify(e))
 	})
 })
 
@@ -1004,6 +1006,7 @@ async function finishAndCallWebhook(job) {
 					}
 				})
 			} catch(err) {
+				console.log("[ERROR] calling webhook: " + wh.url)
 				console.log(err)
 			}
 		}
