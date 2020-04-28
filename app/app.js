@@ -367,18 +367,39 @@ app.post(api + '/remove', checkToken, async (req, res) => {
 })
 
 app.post(api + '/mkdir', checkToken, async (req, res) => {
-	const node = translateNames(req.body)
-	if(!isGoodPath(node.path)) {
-		res.status(400).send("bad file path")
-		return
-	}
-	
-	sshCommand(node, 'mkdir -p -m 0774 ' + node.path).then(r => {
-		res.status(200).send(r)
-	}).catch(e => {
-		console.log(e)
-		res.status(500).send(e)
+	const nodes = (Array.isArray(req.body)) ? req.body : [ req.body ]
+	const results = {}
+	let cnt = 0
+	nodes.forEach(n => {
+		const node = translateNames(n)
+		if(!isGoodPath(node.path)) {
+			res.status(400).send("bad file path")
+			return
+		}
+
+		console.log("[INFO] creating dirs: ", node.path)
+		sshCommand(node, 'umask 002 && mkdir -p -m 0774 ' + node.path).then(r => {
+			cnt += 1
+			if(r.stderr) {
+				results[node.relPath] = "Error: " + r.stderr
+			} else {
+				results[node.relPath] = "Ok"
+			}
+		}).catch(e => {
+			cnt += 1
+			results[node.relPath] = "Error: " + e
+			console.log(e)
+		})
 	})
+
+	const interval = setInterval(()=> {
+		if(cnt >= nodes.length) {
+			clearInterval(interval)
+			res.status(200).send(results)
+		}
+	}, 500)
+
+
 })
 
 app.post(api + '/list', checkToken, async (req, res) => {
@@ -523,6 +544,7 @@ function translateNames(s) {
 	if(!folders[s.name]) folders[s.name] = {}
 	s.host = s.host || sshAdaptorsWithNames[s.name]['host'] || folders[s.name]['host']
 	s.user = s.user || sshAdaptorsWithNames[s.name]['user'] || folders[s.name]['user']
+	s.relPath = s.path
 	s.path = s.path || '/' || sshAdaptorsWithNames[s.name]['path'] || folders[s.name]['folder'] 
 
 	if(s.path.slice(-1) != '/') {
