@@ -215,22 +215,6 @@ function checkToken(req, res, next) {
 	})
 }
 
-/*consumerHandler('*.scp2scp.copy').then(ch => {
-	ch(msg => {
-		const msgBody = JSON.parse(msg.content.toString())
-		const copyReq = msgBody.body
-		console.log(copyReq.cmd.type)
-		queue.create('copy', copyReq).save(err => {
-			if (err) {
-				console.log(err)
-				return
-			}
-			// send reply over msgq
-		})
-
-	})
-})*/
-
 async function copy(req, res) {
 }
 // api urls
@@ -266,12 +250,15 @@ app.post(api + '/move', checkToken, async (req, res) => {
 		if (c.type == 'move') {
 			c.ref = trackId
 			c.num = i
-			const job = queue.create('copy', c).save(err => {
-				if (err) {
-					console.log(err)
-					return
-				}
-			})
+			const job = queue.create('copy', c)
+				.attempts(3)
+				.removeOnComplete(true)
+				.save(err => {
+					if (err) {
+						console.log(err)
+						return
+					}
+				})
 			job.on('failed', function(e) {
 				if(e) {
 					// copy failed so move will fail
@@ -285,7 +272,10 @@ app.post(api + '/move', checkToken, async (req, res) => {
 			job.on('complete', function(r) {
 				r.ref = trackId
 				r.num = i
-				const delJob = queue.create('delete', r).save(err => {
+				const delJob = queue.create('delete', r)
+					.attempts(3)
+					.removeOnComplete(true)
+					.save(err => {
 					if (err) {
 						console.log(err)
 						return
@@ -337,7 +327,10 @@ app.post(api + '/copy', checkToken, async (req, res) => {
 		if (c.type == 'copy') {
 			c.ref = trackId
 			c.num = i
-			queue.create('copy', c).save(err => {
+			queue.create('copy', c)
+				.attempts(3)
+				.removeOnComplete(true)
+				.save(err => {
 				if (err) {
 					console.log(err)
 					return
@@ -1007,7 +1000,8 @@ async function finishAndCallWebhook(job) {
 				})
 			} catch(err) {
 				console.log("[ERROR] calling webhook: " + wh.url)
-				console.log(err)
+				trackCopies[trackId].status += ";WEBHOOK_CALL_ERROR"
+				//console.log(err)
 			}
 		}
 	}
