@@ -622,6 +622,9 @@ function sshCopy(src, dst) {
 								src: src,
 								dst: dst
 							})
+						} else {
+							console.log("hash mismatch")
+							reject("hash mismatch")
 						}
 					}).catch(err => {
 						console.log(err)

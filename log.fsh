@@ -6,4 +6,4 @@ if [ "$CNT" ]
 else
 	set CNT 'scp'
 end
-kubectl log -f  (kubectl get pods -n $UC | grep micro | awk '{print $1}') -n $UC -c $CNT
+kubectl logs -f  (kubectl get pods -n $UC | grep micro | awk '{print $1}') -n $UC -c $CNT
