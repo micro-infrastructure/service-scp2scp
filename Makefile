@@ -1,11 +1,11 @@
 .PHONY: build
 
 build:
-	docker build -t recap/process-scp2scp:v0.1 .
+	docker build -t microinfrastructure/service-copy:v0.2 .
 
 push: build
-	docker push recap/process-scp2scp
+	docker push microinfrastructure/service-copy
 
 run: build
-	docker run -it --privileged recap/process-scp2scp:v0.1 sh
+	docker run -it --privileged microinfrastructure/service-copy:v0.2 sh
 

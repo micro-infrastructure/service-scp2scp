@@ -44,6 +44,13 @@ let infra = (fs.existsSync(infraPath)) ? require(infraPath) : null
 let network = (fs.existsSync(netPath)) ? require(netPath) : null
 let users = (fs.existsSync(usersPath)) ? require(usersPath) : []
 
+let idRsaFilename = "process_id_rsa"
+if(process.env.ID_RSA_FILENAME){
+	const f = decodeBase64(process.env.ID_RSA_FILENAME)
+	if(fs.existsSync(process.env.HOME + '/.ssh/' + f)) {
+		idRsaFilename = f
+	}
+}
 
 if(network) {
 	console.log("loaded network graph graph: ", netPath)
@@ -69,7 +76,7 @@ Object.keys(users).forEach(k => {
 })
 
 if(!options.sshPrivateKey) {
-	const processPath = process.env.HOME + "/.ssh/process_id_rsa"
+	const processPath = process.env.HOME + "/.ssh/" + idRsaFilename
 	const defaultPath = process.env.HOME + "/.ssh/id_rsa"
 	if(fs.existsSync(processPath)) {
 		options.sshPrivateKey =  processPath
@@ -77,6 +84,8 @@ if(!options.sshPrivateKey) {
 		options.sshPrivateKey =  defaultPath
 	}
 }
+
+console.log("[INFO] using file " + options.sshPrivateKey + " as id_rsa key file.")
 
 const api = '/api/v1'
 const serverPort = options.port || 4300
