@@ -1,8 +1,9 @@
-Core-copy
-GET /api/v1/folders
+# Core-copy
+#### GET /api/v1/folders
 Description: get folder name aliases
 Requirements: user x-access-token
 Response example: 
+```
 {
     "krk": {
         "host": "HOST",
@@ -30,58 +31,72 @@ Response example:
         "user": ""
     }
 }
+```
 
 
-
-POST /api/v1/list
+#### POST /api/v1/list
 Description: get list of files in a folder. From v0.2.2 the response paths are relative, not the absolute paths on the host.
 Requirements: user x-access-token
 Payload type :JSON
 Payload example: 
+```
 {
     "name": "krk",
     "path": "/"
  }
+```
 Response example (v0.2.0): 
+```
 [
     "/net/archive/groups/plggprocess/test/",
     "/net/archive/groups/plggprocess/test/10M.dat"
 ]
+```
 Response example (v0.2.2): 
+```
 [
     "/",
     "/10M.dat"
 ]
-
-POST /api/v1/remove
+```
+#### POST /api/v1/remove
 Description: remove a file given by a relative path. To recursively remove folders the recursive flag has to be defined in the payload.
 Requirements: user x-access-token
 Payload type :JSON
 Payload example for removing file: 
+```
 {
     "name": "krk",
     "file": "/10M.dat"
  }
+```
 Response example: 
+```
 {
     "stdout": "",
     "stderr": "",
     "startTime": "2020-04-18T14:13:59.009Z",
     "endTime": "2020-04-18T14:13:59.925Z"
 }
+```
 Payload example for removing folder: 
+```
 {
     "name": "krk",
     "file": "/afolder",
     “recursive”: true
  }
+```
+
 Response example: 
+```
 {
     "stdout": "",
     "stderr": "",
     "startTime": "2020-04-18T14:13:59.009Z",
     "endTime": "2020-04-18T14:13:59.925Z"
 }
+```
  
 
 v0.2.4
@@ -89,21 +104,25 @@ Description: same as previous version but payload can take an array of files/fol
 Requirements: user x-access-token
 Payload type :JSON
 Payload example for removing file: 
+```
 [
     {    "name": "krk",     "file": "/folderOne/folderTwo",    "recursive": true     },
     {     "name": "krk",     "file": "/test123/delete_me.dat",     "recursive": false    },
     {     "name": "krk",     "file": "/dir888",     "recursive": true    },
     {     "name": "krk",     "file": "/some_file.dat",     "recursive": false     }
 ]
+```
 
 
 Response example: 
+```
 {
     "/some_file.dat": "Ok",
     "/dir888": "Ok",
     "/folderOne/folderTwo": "Ok",
     "/test123/delete_me.dat": "Ok"
 }
+```
  
 
 POST /api/v1/mkdir
@@ -111,17 +130,21 @@ Description: creates directories and subdirectories. The folder permissions are 
 Requirements: user x-access-token
 Payload type :JSON
 Payload example: 
+```
 {
     "name": "krk",
     "path": "/folderOne/folderTwo"
  }
+```
 Response example: 
+```
 {
     "stdout": "",
     "stderr": "",
     "startTime": "2020-04-18T14:13:59.009Z",
     "endTime": "2020-04-18T14:13:59.925Z"
 }
+```
  
  
 v0.2.4
@@ -129,25 +152,30 @@ Description: Same as previous version but now payload can take an array. The cal
 Requirements: user x-access-token
 Payload type :JSON
 Payload example: 
+```
 [
     {    "name": "krk",    "path": "/folderOne/folderTwo"    },
     {     "name": "krk",     "path": "/test123"    },
     {     "name": "krk",     "path": "/dir888"    }
     
 ]
+```
 Response example: 
+```
 {
     "/dir888": "Ok",
     "/test123": "Ok",
     "/folderOne/folderTwo": "Ok"
 }
+```
  
 
-POST /api/v1/copy (v0.2.0)
+#### POST /api/v1/copy (v0.2.0)
 Description: copy files from one location to the other using SCP.
 Requirements: user x-access-token
 Payload type: JSON
 Payload example:
+```
 {
     "id": "test-1",
     "webhook": {
@@ -172,8 +200,10 @@ Payload example:
     
     ]
  }
+```
 
 Response example:
+```
 {
     "id": "test-1",
     "timestamp": "2020-03-06T11:40:26.400Z",
@@ -189,12 +219,14 @@ Response example:
     "files": {},
     "status": "QUEUED"
 }
+```
  
 v0.2.2
 Description: copy files from one location to the other using SCP. In version 0.2.2 fdt has been included. This has only been configured to/from snedtn server and lrzdtn server. To choose fdt this is defined in the payload. The default is scp. The permissions are set to 0664 after copy.
 Requirements: user x-access-token
 Payload type: JSON
 Payload example:
+```
 {
     "id": "test-1",
     "webhook": {
@@ -220,8 +252,10 @@ Payload example:
     
     ]
  }
+```
 
 Response example:
+```
 {
     "id": "test-1",
     "timestamp": "2020-03-06T11:40:26.400Z",
@@ -237,13 +271,14 @@ Response example:
     "files": {},
     "status": "QUEUED"
 }
- 
+``` 
 
-POST /api/v1/move
+#### POST /api/v1/move
 Description: moves files from one location to the other using SCP.
 Requirements: user x-access-token
 Payload type: JSON
 Payload example:
+```
 {
     "id": "test-1",
     "webhook": {
@@ -268,8 +303,9 @@ Payload example:
     
     ]
  }
-
+```
 Response example:
+```
 {
     "id": "test-1",
     "timestamp": "2020-03-06T11:40:26.400Z",
@@ -285,11 +321,12 @@ Response example:
     "files": {},
     "status": "QUEUED"
 }
-
-GET /api/v1/status/[trackId]
+```
+#### GET /api/v1/status/[trackId]
 Description: get status of file copy/move
 Requirements: user x-access-token
 Response example: 
+```
 {
     "counter": 0,
     "files": {
@@ -326,4 +363,4 @@ Response example:
         "url": "  https://webhook.site/5922e4ee-467a-40eb-9a1a-8579a8f40a00"
     }
 }
-
+```
