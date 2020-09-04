@@ -469,6 +469,17 @@ app.get(api + '/status/:trackId',  checkToken, async (req, res) => {
 	res.status(200).send(trackCopies[trackId])
 })
 
+app.delete(api + '/job/:trackId',  checkToken, async (req, res) => {
+	const trackId = req.params.trackId
+	const doc = trackCopies[trackId]
+	if(!doc) {
+		res.status(404).send()
+		return
+	}
+	doc.status = "CANCELLED"	
+	res.status(200).send()
+})
+
 function trim(s) {
 	if (!s) return ''
 	return s.replace(/^\s+|\s+$/g,'')
@@ -951,6 +962,11 @@ queue.process('delete', async (job, done) => {
 	const doc = trackCopies[trackId]
 	const track = doc.files[copyId]
 
+	if(doc.status == "CANCELLED") {
+		done("CANCELLED")
+		return
+	}
+
 	track.status = "START_DELETE"
 	doc.status = "IN_PROGRESS"
 	getHashOfDstAndSrc(job.data.src, job.data.dst).then(r => {
@@ -1026,6 +1042,12 @@ queue.process('copy', async (job, done) => {
 	const trackId = job.data.ref
 	const copyId = job.data.num
 	const doc = trackCopies[trackId]
+
+	if(doc.status == "CANCELLED") {
+		done("CANCELLED")
+		return
+	}
+
 	doc.files[copyId] = {
 		src: job.data.src,
 		dst: job.data.dst
