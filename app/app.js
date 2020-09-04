@@ -952,6 +952,7 @@ queue.process('delete', async (job, done) => {
 	const track = doc.files[copyId]
 
 	track.status = "START_DELETE"
+	doc.status = "IN_PROGRESS"
 	getHashOfDstAndSrc(job.data.src, job.data.dst).then(r => {
 		if(r.src.md5sum == r.dst.md5sum) {
 			// OK to delete src
@@ -1041,6 +1042,7 @@ queue.process('copy', async (job, done) => {
 			edge.protocolPreference = [job.data.protocol]
 		}
 		track.status = "START_COPY"
+		doc.status = "IN_PROGRESS"
 		for(let p of edge.protocolPreference) {
 			if(p == 'fdt') {
 				const out = await(fdtCopy(job.data.src, job.data.dst, null))
