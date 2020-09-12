@@ -1120,7 +1120,7 @@ queue.process('copy', async (job, done) => {
 			throw("Error", "no protocol handler: " + p)
 		}
 		track.status = "DONE_COPY"
-		track.webdavLink = webdavEp + "/" + job.data.dst.name + "/" + job.data.dst.file
+		track.webdavLink = webdavEp  + job.data.dst.name + "/" + job.data.dst.file + "/" + path.basename(job.data.src.path)
 		const tDiff = new Date() - new Date(tStart)
 		track.dst.totalDuration = tDiff
 		track.dst.copyDuration = new Date(track.dst.endCopyTime) - new Date(tStart) 
