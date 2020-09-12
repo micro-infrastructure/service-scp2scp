@@ -45,6 +45,45 @@ let network = (fs.existsSync(netPath)) ? require(netPath) : null
 let users = (fs.existsSync(usersPath)) ? require(usersPath) : []
 
 let idRsaFilename = "process_id_rsa"
+const token = process.env.TOKEN
+const coreApi = process.env.PROCESS_CORE_API
+let webdavEp = undefined 
+
+
+async function getInfraInfo() {
+	const url = "http://" + coreApi + "/api/v1/infrastructure" 
+	try{
+		const headers = {
+			'x-access-token': token,
+			'Content-Type': 'application/json'
+		}
+		console.log("retrieving infra info...")
+		
+		const result = await rp.get(url, {
+			headers: headers
+		})
+		console.log("[INFO] infra info", result)
+		r = JSON.parse(result)
+		filterServices = r.services.filter(s => {
+			const names = s.name.split('-')
+			const name = names[names.length - 1]
+			return (name == 'webdav')
+		})[0]
+		if(filterServices) {
+			webdavEp = "http://" + filterServices.entryEndpoints[0] + ":" + filterServices.ports[0]
+		}
+		console.log(webdavEp)
+		return result
+	} catch(err) {
+		console.log(err)
+		console.log("[WARNING] core api not found: " + url)
+		return null
+	}
+}
+
+getInfraInfo()
+
+
 if(process.env.ID_RSA_FILENAME){
 	const f = decodeBase64(process.env.ID_RSA_FILENAME)
 	if(fs.existsSync(process.env.HOME + '/.ssh/' + f)) {
@@ -1081,6 +1120,7 @@ queue.process('copy', async (job, done) => {
 			throw("Error", "no protocol handler: " + p)
 		}
 		track.status = "DONE_COPY"
+		track.webdavLink = webdavEp + "/" + dst.name + "/" + dst.file
 		const tDiff = new Date() - new Date(tStart)
 		track.dst.totalDuration = tDiff
 		track.dst.copyDuration = new Date(track.dst.endCopyTime) - new Date(tStart) 
