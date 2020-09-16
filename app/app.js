@@ -37,6 +37,7 @@ const cmdOptions = [
 
 const options = cmdArgs(cmdOptions)
 const DEV = options.dev
+const MD5 = false
 const infraPath = options.infraPath || '/assets/infra.json'
 const netPath = options.netPath || '/assets/network.json'
 const usersPath = options.users || '/assets/jwtusers.json'
@@ -51,6 +52,9 @@ let webdavEp = undefined
 
 
 async function getInfraInfo() {
+	if(DEV) {
+		return null
+	}
 	const url = "http://" + coreApi + "/api/v1/infrastructure" 
 	try{
 		const headers = {
@@ -644,11 +648,15 @@ function sshCopy(src, dst) {
 	console.log("dst: ", dst)
 	return new Promise(async(resolve, reject) => {
 		try{
-			const exists = await remoteFileExists(src)
+			//const exists = await remoteFileExists(src)
+			const exists = await remoteFileStat(src)
 			if(!exists) {
 				console.log("file does not exist " + src.file)
 				reject("source file not exists.")
 				return
+			} else {
+				src.size = exists.size
+				src.type = exists.type
 			}
 		}catch(err){
 			console.log(err)
@@ -671,24 +679,31 @@ function sshCopy(src, dst) {
 					console.log("[SCP] close")
 					conn.end()
 					dst.endCopyTime = new Date().toISOString()
-					getHashOfDstAndSrc(src, dst).then(r => {
-						console.log("src, dst hash: ", r)
-						if((r.src.md5sum) && (r.src.md5sum == r.dst.md5sum)) {
-							console.log("hash match.")
-							src.md5sum = r.src.md5sum
-							dst.md5sum = r.dst.md5sum
-							resolve({
-								src: src,
-								dst: dst
-							})
-						} else {
-							console.log("hash mismatch")
-							reject("hash mismatch")
-						}
-					}).catch(err => {
-						console.log(err)
-						reject("calc hash error")
-					})
+					if(MD5) {
+						getHashOfDstAndSrc(src, dst).then(r => {
+							console.log("src, dst hash: ", r)
+							if((r.src.md5sum) && (r.src.md5sum == r.dst.md5sum)) {
+								console.log("hash match.")
+								src.md5sum = r.src.md5sum
+								dst.md5sum = r.dst.md5sum
+								resolve({
+									src: src,
+									dst: dst
+								})
+							} else {
+								console.log("hash mismatch")
+								reject("hash mismatch")
+							}
+						}).catch(err => {
+							console.log(err)
+							reject("calc hash error")
+						})
+					} else {
+						resolve({
+							src: src,
+							dst: dst
+						})
+					}
 				}).on('data', (data) => {
 					console.log("[SCP STDOUT] " + data)
 				}).stderr.on('data', (data) => {
@@ -961,6 +976,34 @@ function remoteFileExists(src) {
 	})
 }
 
+function remoteFileStat(src) {
+	console.log("checking file stat: ", src)
+	return new Promise((resolve, reject) => {
+		const srcNode = {
+			host: src.host,
+			user: src.user,
+			file: src.absFullPath
+		}
+		sshCommand(srcNode, 'stat ' + srcNode.file).then(r => {
+			console.log("return from test -f " + srcNode.file)
+			if(r.stdout) {
+				const stats = r.stdout.split('\n')[1].split(/[ ]+/)
+				const type = stats[8].replace('regular', 'file')
+				// type: directory | file | symbolic
+				resolve({
+					size: stats[2],
+					type: type
+				})
+			} else {
+				resolve(false)
+			}
+		}).catch(e => {
+			console.log(e)
+			reject(e)
+		})
+	})
+}
+
 function getHashOfDstAndSrc(src, dst) {
 	console.log("calculating src, dst hash.")
 	return new Promise((resolve, reject) => {
@@ -1121,7 +1164,7 @@ queue.process('copy', async (job, done) => {
 		}
 		track.status = "DONE_COPY"
 		const pathName = (job.data.dst.name + "/" + job.data.dst.file + "/" + path.basename(job.data.src.path)).split('//').join('/')
-		track.webdavLink = webdavEp  + "/" + pathName
+		track.webdavLink = (webdavEp) ? webdavEp  + "/" + pathName : undefined
 		const tDiff = new Date() - new Date(tStart)
 		track.dst.totalDuration = tDiff
 		track.dst.copyDuration = new Date(track.dst.endCopyTime) - new Date(tStart) 
