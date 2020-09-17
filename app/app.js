@@ -22,7 +22,7 @@ const jwt = require('jsonwebtoken')
 const randomstring = require('randomstring')
 const eventEmitter = new events.EventEmitter()
 
-const VERSION = "0.2.5"
+const VERSION = "0.2.6"
 
 const cmdOptions = [
 	{ name: 'port', alias: 'p', type: Number},
@@ -289,6 +289,7 @@ app.post(api + '/move', checkToken, async (req, res) => {
 		trackId: trackId,
 		webhook: webhook,
 		counter: copies.length,
+		tries: 0,
 		files: {},
 		//ready: [],
 		//error: [],
@@ -311,6 +312,10 @@ app.post(api + '/move', checkToken, async (req, res) => {
 						return
 					}
 				})
+			job.on('failed attempt', function(e) {
+				const error = JSON.parse(e)
+				console.log("failed attempt", error)
+			})
 			job.on('failed', function(e) {
 				if(e) {
 					// copy failed so move will fail
@@ -366,6 +371,7 @@ app.post(api + '/copy', checkToken, async (req, res) => {
 		trackId: trackId,
 		webhook: webhook,
 		counter: copies.length,
+		tries: 0,
 		files: {},
 		//ready: [],
 		//error: [],
@@ -646,6 +652,7 @@ function sshCopy(src, dst) {
 
 	console.log("src: ", src)
 	console.log("dst: ", dst)
+	let error = ""
 	return new Promise(async(resolve, reject) => {
 		try{
 			//const exists = await remoteFileExists(src)
@@ -671,7 +678,7 @@ function sshCopy(src, dst) {
 		conn.on('ready', () => {
 			console.log("[SSH] connected")
 			//const cmd = 'scp -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q ' + src.absFullPath + " " + dst.user + '@' + dst.host + ":" + dst.absFullPath + '/'
-			const cmd = 'rsync -a --chmod=0774 --append-verify -e "ssh -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" ' + src.absFullPath + " " + dst.user + '@' + dst.host + ":" + dst.absFullPath + '/'
+			const cmd = 'rsync -a --chmod=2775 --append-verify -e "ssh -i .ssh/process_id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" ' + src.absFullPath + " " + dst.user + '@' + dst.host + ":" + dst.absFullPath + '/'
 			console.log("cmd: ", cmd)
 			conn.exec(cmd, (err, stream) => {
 				if (err) reject(err)
@@ -699,15 +706,22 @@ function sshCopy(src, dst) {
 							reject("calc hash error")
 						})
 					} else {
-						resolve({
-							src: src,
-							dst: dst
-						})
+						if(error) {
+							reject(error)
+						} else {
+							resolve({
+								src: src,
+								dst: dst
+							})
+						}
 					}
 				}).on('data', (data) => {
 					console.log("[SCP STDOUT] " + data)
 				}).stderr.on('data', (data) => {
 					console.log("[SCP STDERR] " + data)
+					if(data.indexOf("rsync") > -1) {
+						error = error + " " + data
+					}
 				})
 			})
 		}).connect({
