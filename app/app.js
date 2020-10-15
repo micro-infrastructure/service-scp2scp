@@ -621,8 +621,10 @@ function translateNames(s) {
 	infra.folders.forEach(f => {
 		folders[f.name] = f
 	})
-	if(s.file.substring(0,1) != '/') {
-		s.file = '/' + s.file
+	if(s.file) {
+		if(s.file.substring(0,1) != '/') {
+			s.file = '/' + s.file
+		}
 	}
 	if(!sshAdaptorsWithNames[s.name]) sshAdaptorsWithNames[s.name] = {}
 	if(!folders[s.name]) folders[s.name] = {}
